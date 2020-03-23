@@ -4,141 +4,140 @@
 
 entrypoints Prog ;
 
-Program.   Prog ::= [TopDef] ;
+Program.    Prog ::= [TopDef] ;
 
-FnDef.	   TopDef ::= Type Ident "(" [Arg] ")" Blk ;
+FnDef.      TopDef ::= Type Ident "(" [Arg] ")" Blk ;
 
 separator nonempty TopDef "" ;
 
-Argument.  Arg ::= Type Ident;
+Argument.   Arg ::= Type Ident;
 
-separator  Arg "," ;
+separator   Arg "," ;
 
 --
 -- Statements
 --
 
-Block.     Blk ::= "{" [Stmt] "}" ;
+Block.      Blk ::= "{" [Stmt] "}" ;
 
-separator  Stmt "" ;
+separator   Stmt "" ;
 
-Empty.     Stmt ::= ";" ;
+Empty.      Stmt ::= ";" ;
 
-BStmt.     Stmt ::= Blk ;
+BStmt.      Stmt ::= Blk ;
 
-Decl.      Stmt ::= Type [Item] ";" ;
+Decl.       Stmt ::= Type [Item] ";" ;
 
-NoInit.    Item ::= Ident ;
+NoInit.     Item ::= Ident ;
 
-Init.      Item ::= Ident "=" Expr ;
+Init.       Item ::= Ident "=" Expr ;
 
 separator nonempty Item "," ;
 
-Ass.       Stmt ::= Ident "=" Expr ";" ;
+Ass.        Stmt ::= Ident "=" Expr ";" ;
 
-Incr.      Stmt ::= Ident "++" ";" ;
+Incr.       Stmt ::= Ident "++" ";" ;
 
-Decr.      Stmt ::= Ident "--" ";" ;
+Decr.       Stmt ::= Ident "--" ";" ;
 
-Ret.       Stmt ::= "return" Expr ";" ;
+Ret.        Stmt ::= "return" Expr ";" ;
 
-VRet.      Stmt ::= "return" ";" ;
+VRet.       Stmt ::= "return" ";" ;
 
-Cond.      Stmt ::= "if" "(" Expr ")" Stmt ;
+If.         Stmt ::= "if" "(" Expr ")" Stmt ;
 
-CondElse.  Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt ;
+IfElse.     Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt ;
 
-While.     Stmt ::= "while" "(" Expr ")" Stmt ;
+While.      Stmt ::= "while" "(" Expr ")" Stmt ;
 
-SExp.      Stmt ::= Expr ";" ;
+SExp.       Stmt ::= Expr ";" ;
 
 --
 -- Types
 --
 
-Int.       Type ::= "int" ;
+Int.        Type ::= "int" ;
 
-Doub.      Type ::= "double" ;
+Double.     Type ::= "double" ;
 
-Bool.      Type ::= "boolean" ;
+Bool.       Type ::= "boolean" ;
 
-Void.      Type ::= "void" ;
+Void.       Type ::= "void" ;
 
-internal   Fun. Type ::= Type "(" [Type] ")" ;
+internal    Fun. Type ::= Type "(" [Type] ")" ;
 
-separator  Type "," ;
+separator   Type "," ;
 
 --
 -- Expressions
 --
 
-AnnExp.    Expr6 ::= Expr "::" Type ;
+AnnExp.     Expr6 ::= Expr "::" Type ;
 
-EVar.      Expr6 ::= Ident ;
+EVar.       Expr6 ::= Ident ;
 
-ELitInt.   Expr6 ::= Integer ;
+ELitInt.    Expr6 ::= Integer ;
 
-ELitDoub.  Expr6 ::= Double;
+ELitDouble. Expr6 ::= Double;
 
-ELitTrue.  Expr6 ::= "true" ;
+ELitTrue.   Expr6 ::= "true" ;
 
-ELitFalse. Expr6 ::= "false" ;
+ELitFalse.  Expr6 ::= "false" ;
 
-EApp.      Expr6 ::= Ident "(" [Expr] ")" ;
+EApp.       Expr6 ::= Ident "(" [Expr] ")" ;
 
-EString.   Expr6 ::= String ;
+EString.    Expr6 ::= String ;
 
-Neg.       Expr5 ::= "-" Expr6 ;
+Neg.        Expr5 ::= "-" Expr6 ;
 
-Not.       Expr5 ::= "!" Expr6 ;
+Not.        Expr5 ::= "!" Expr6 ;
 
-EMul.      Expr4 ::= Expr4 MulOp Expr5 ;
+EMul.       Expr4 ::= Expr4 MulOp Expr5 ;
 
-EAdd.      Expr3 ::= Expr3 AddOp Expr4 ;
+EAdd.       Expr3 ::= Expr3 AddOp Expr4 ;
 
-ERel.      Expr2 ::= Expr2 RelOp Expr3 ;
+ERel.       Expr2 ::= Expr2 RelOp Expr3 ;
 
-EAnd.      Expr1 ::= Expr2 "&&" Expr1 ;
+EAnd.       Expr1 ::= Expr2 "&&" Expr1 ;
 
-EOr.       Expr ::= Expr1 "||" Expr ;
+EOr.        Expr ::= Expr1 "||" Expr ;
 
-coercions  Expr 6 ;
+coercions   Expr 6 ;
 
-separator  Expr "," ;
+separator   Expr "," ;
 
 --
--- Operators
+-- Operator s
 --
 
-Plus.      AddOp ::= "+" ;
+Plus.       AddOp ::= "+" ;
 
-Minus.     AddOp ::= "-" ;
+Minus.      AddOp ::= "-" ;
 
-Times.     MulOp ::= "*" ;
+Times.      MulOp ::= "*" ;
 
-Div.       MulOp ::= "/" ;
+Div.        MulOp ::= "/" ;
 
-Mod.       MulOp ::= "%" ;
+Mod.        MulOp ::= "%" ;
 
-LTH.       RelOp ::= "<" ;
+LT.         RelOp ::= "<" ;
 
-LE.        RelOp ::= "<=" ;
+LE.         RelOp ::= "<=" ;
 
-GTH.       RelOp ::= ">" ;
+GT.         RelOp ::= ">" ;
 
-GE.        RelOp ::= ">=" ;
+GE.         RelOp ::= ">=" ;
 
-EQU.       RelOp ::= "==" ;
+EQ.         RelOp ::= "==" ;
 
-NE.        RelOp ::= "!=" ;
+NE.         RelOp ::= "!=" ;
 
 --
 -- Comments
 --
 
-comment    "#" ;
+comment     "#" ;
 
-comment    "//" ;
+comment     "//" ;
 
-comment    "/*" "*/" ;
-
+comment     "/*" "*/" ;
