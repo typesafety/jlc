@@ -1,5 +1,5 @@
 --
--- programs
+-- Programs
 --
 
 entrypoints Prog ;
@@ -15,7 +15,7 @@ Argument.  Arg ::= Type Ident;
 separator  Arg "," ;
 
 --
--- statements
+-- Statements
 --
 
 Block.     Blk ::= "{" [Stmt] "}" ;
@@ -52,7 +52,9 @@ While.     Stmt ::= "while" "(" Expr ")" Stmt ;
 
 SExp.      Stmt ::= Expr ";" ;
 
--- Types ---------------------------------------------------
+--
+-- Types
+--
 
 Int.       Type ::= "int" ;
 
@@ -66,7 +68,11 @@ internal   Fun. Type ::= Type "(" [Type] ")" ;
 
 separator  Type "," ;
 
--- Expressions ---------------------------------------------
+--
+-- Expressions
+--
+
+AnnExp.    Expr6 ::= Expr "::" Type ;
 
 EVar.      Expr6 ::= Ident ;
 
@@ -100,7 +106,9 @@ coercions  Expr 6 ;
 
 separator  Expr "," ;
 
--- operators -----------------------------------------------
+--
+-- Operators
+--
 
 Plus.      AddOp ::= "+" ;
 
@@ -125,7 +133,7 @@ EQU.       RelOp ::= "==" ;
 NE.        RelOp ::= "!=" ;
 
 --
--- comments
+-- Comments
 --
 
 comment    "#" ;
