@@ -1,3 +1,7 @@
 src/Javalette/
 src/*.make
+
+testfiles/
+
 *.bak
+

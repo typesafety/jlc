@@ -5,7 +5,8 @@ all:
 	@echo "all: Not yet implemented"
 
 build:
-	@echo "build: Not yet implemented"
+	@echo "TEMPORARY command while testing stuff"
+	cd src && runhaskell Main.hs
 
 grammar:
 	bnfc -o $(SRCDIR) --makefile=$(BNFC_MAKEFILE_NAME) -d $(SRCDIR)/Javalette.cf
