@@ -72,42 +72,42 @@ separator   Type "," ;
 -- Expressions
 --
 
-AnnExp.     Expr6 ::= Expr "::" Type ;
+EVar.       Expr7 ::= Ident ;
 
-EVar.       Expr6 ::= Ident ;
+ELitInt.    Expr7 ::= Integer ;
 
-ELitInt.    Expr6 ::= Integer ;
+ELitDouble. Expr7 ::= Double;
 
-ELitDouble. Expr6 ::= Double;
+ELitTrue.   Expr7 ::= "true" ;
 
-ELitTrue.   Expr6 ::= "true" ;
+ELitFalse.  Expr7 ::= "false" ;
 
-ELitFalse.  Expr6 ::= "false" ;
+EApp.       Expr7 ::= Ident "(" [Expr] ")" ;
 
-EApp.       Expr6 ::= Ident "(" [Expr] ")" ;
+EString.    Expr7 ::= String ;
 
-EString.    Expr6 ::= String ;
+Neg.        Expr6 ::= "-" Expr7 ;
 
-Neg.        Expr5 ::= "-" Expr6 ;
+Not.        Expr6 ::= "!" Expr7 ;
 
-Not.        Expr5 ::= "!" Expr6 ;
+EMul.       Expr5 ::= Expr5 MulOp Expr6 ;
 
-EMul.       Expr4 ::= Expr4 MulOp Expr5 ;
+EAdd.       Expr4 ::= Expr4 AddOp Expr5 ;
 
-EAdd.       Expr3 ::= Expr3 AddOp Expr4 ;
+ERel.       Expr3 ::= Expr3 RelOp Expr4 ;
 
-ERel.       Expr2 ::= Expr2 RelOp Expr3 ;
+EAnd.       Expr2 ::= Expr3 "&&" Expr2 ;
 
-EAnd.       Expr1 ::= Expr2 "&&" Expr1 ;
+EOr.        Expr1 ::= Expr2 "||" Expr1 ;
 
-EOr.        Expr ::= Expr1 "||" Expr ;
+AnnExp.     Expr ::= Expr1 "::" Type ;
 
-coercions   Expr 6 ;
+coercions   Expr 7 ;
 
 separator   Expr "," ;
 
 --
--- Operator s
+-- Operators
 --
 
 Plus.       AddOp ::= "+" ;
@@ -120,15 +120,15 @@ Div.        MulOp ::= "/" ;
 
 Mod.        MulOp ::= "%" ;
 
-LT.         RelOp ::= "<" ;
+LTH.        RelOp ::= "<" ;
 
 LE.         RelOp ::= "<=" ;
 
-GT.         RelOp ::= ">" ;
+GTH.        RelOp ::= ">" ;
 
 GE.         RelOp ::= ">=" ;
 
-EQ.         RelOp ::= "==" ;
+EQU.        RelOp ::= "==" ;
 
 NE.         RelOp ::= "!=" ;
 
