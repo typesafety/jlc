@@ -30,8 +30,8 @@ instance Show Error where
       , "    ", showType actualType
       ]
 
-    NameError id -> mconcat
-      [ "`", showId id, "`", " was not found in the current context"
+    SymbolError id -> mconcat
+      [ "Could not resolve symbol: `", showId id, "`"
       ]
 
     Error str -> str

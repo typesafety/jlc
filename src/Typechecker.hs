@@ -59,13 +59,30 @@ checkDefs :: Prog -> Typecheck Prog
 checkDefs (Program topDefs) = Program <$> mapM checkDef topDefs
 
 checkDef :: TopDef -> Typecheck TopDef
-checkDef (FnDef typ id args blk) = undefined
+checkDef (FnDef typ id args blk) = do
+  -- First, add the function return type as the only binding in
+  -- the bottom context of the stack. This bottom context will contain
+  -- only this binding and serves only to store the return type.
+  pushCxt
+  bindType (Ident "retType") typ
+
+  -- Then, push another context onto the stack and bind the types
+  -- of the function arguments.
+  pushCxt
+  bindArgs args
+
+bindArgs :: [Arg] -> Typecheck ()
+bindArgs = do
+  c : cs <- get
+  --todo
+  M.union c . M.fromList . map bind $ args
+
 
 bindType :: Ident -> Type -> Typecheck ()
 bindType id typ = updateCxt (M.insert id typ)
 
 updateCxt :: (Context -> Context) -> Typecheck ()
-updateCxt f = ST.modify (\ (x : xs) -> f x : xs)
+updateCxt f = ST.modify (\ (c : cs) -> f c : cs)
 
 pushCxt :: Typecheck ()
 pushCxt = ST.modify (M.empty :)
