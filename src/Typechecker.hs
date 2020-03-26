@@ -34,61 +34,58 @@ type Env = [Context]
 emptyEnv :: Env
 emptyEnv = []
 
--- | Typecheck a parsed program.
+-- | Typecheck (and annotate?) a parsed program.
 typecheck :: Prog -> Typecheck Prog
 typecheck (Program topdefs) = do
-  undefined
-  -- sigs <- getSigs topdefs
+  sigs <- getSigs topdefs
 
-  -- checkMain sigs
+  checkMain sigs
 
-  -- trace (show sigs) $ return ()
-  -- return undefined
+  trace (show sigs) $ return ()
+  return undefined
 
+-- | Checks for the existence of main(), and that it has the
+-- correct arguments and return type.
+checkMain :: Signatures -> Typecheck ()
+checkMain sigs = case M.lookup (Ident "main") sigs of
+  Nothing -> fail "Missing main() function"
+  Just (argTypes, retType)
+    | retType /= Int      -> fail "main() does not not have return type `int`"
+    | not $ null argTypes -> fail "main() must have zero arguments"
+    | otherwise           -> return ()
 
+-- | Get the top level function signatures from a list of
+-- top level defintions
+getSigs :: [TopDef] -> Typecheck Signatures
+getSigs topDefs = do
+  sigInfo <- mapM getSigInfo topDefs
 
--- -- | Checks for the existence of main(), and that it has the
--- -- correct arguments and return type.
--- checkMain :: Signatures -> Err ()
--- checkMain sigs = case M.lookup (Ident "main") sigs of
---   Nothing -> fail "Missing main() function"
---   Just (argTypes, retType)
---     | retType /= Int      -> fail "main() does not not have return type `int`"
---     | not $ null argTypes -> fail "main() must have zero arguments"
---     | otherwise           -> return ()
+  -- Check for duplicate function names.
+  let funIds = map fst sigInfo
+  when (nubOrd funIds /= funIds)
+    $ fail "Duplicate top-level function identifier"
 
--- -- | Get the top level function signatures from a list of
--- -- top level defintions
--- getSigs :: [TopDef] -> Err Signatures
--- getSigs topDefs = do
---   sigInfo <- mapM getSigInfo topDefs
+  return $ M.fromList sigInfo
 
---   -- Check for duplicate function names.
---   let funIds = map fst sigInfo
---   when (nubOrd funIds /= funIds)
---     $ fail "Duplicate top-level function identifier"
+getSigInfo :: TopDef -> Typecheck (Ident, ([Type], Type))
+getSigInfo (FnDef retType id args _) =
+  getArgTypes args >>= \ argTypes -> return (id, (argTypes, retType))
 
---   return $ M.fromList sigInfo
+-- | Returns the argument types from a list of arguments, fails if
+-- there are issues with any arguments.
+getArgTypes :: [Arg] -> Typecheck [Type]
+getArgTypes args = do
+  let (types, ids) = unzip . map getArg $ args
 
--- getSigInfo :: TopDef -> Err (Ident, ([Type], Type))
--- getSigInfo (FnDef retType id args _) =
---   getArgTypes args >>= \ argTypes -> return (id, (argTypes, retType))
+  -- Check for duplicate argument names or void argument types.
+  when (nubOrd ids /= ids) $ fail "Duplicate argument identifier"
+  when (Void `elem` types) $ fail "Function argument has type Void"
 
--- -- | Returns the argument types from a list of arguments, fails if
--- -- there are issues with any arguments.
--- getArgTypes :: [Arg] -> Err [Type]
--- getArgTypes args = do
---   let (types, ids) = unzip . map getArg $ args
+  return types
 
---   -- Check for duplicate argument names or void argument types.
---   when (nubOrd ids /= ids) $ fail "Duplicate argument identifier"
---   when (Void `elem` types) $ fail "Function argument has type Void"
-
---   return types
-
---   where
---     getArg :: Arg -> (Type, Ident)
---     getArg (Argument typ id) = (typ, id)
+  where
+    getArg :: Arg -> (Type, Ident)
+    getArg (Argument typ id) = (typ, id)
 
 
 

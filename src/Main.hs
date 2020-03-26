@@ -7,6 +7,7 @@ import           System.Environment (getArgs)
 import           System.Exit (exitFailure)
 
 import Javalette.Abs (Prog)
+import Javalette.ErrM (Err (Ok, Bad))
 import Javalette.Par (pProg, myLexer)
 
 import qualified Errors as Errs
@@ -17,13 +18,17 @@ run code = do
   -- Lex
   let tokens = myLexer code
 
-  undefined
-  -- -- Parse
-  --  pProg tokens
+  -- Parse
+  ast <- toEither $ pProg tokens
 
+  -- Typecheck
+  TC.runTypecheck $ TC.typecheck ast
 
-  -- -- Typecheck
-  -- TC.typecheck ast
+  where
+    toEither :: Err Prog -> Either Errs.Error Prog
+    toEither = \case
+      Ok ast     -> Right ast
+      Bad errMsg -> Left $ Errs.GenericError errMsg
 
 main :: IO ()
 main = do
@@ -31,7 +36,7 @@ main = do
   case args of
     -- Only supports a single file currently
     [file] -> run <$> readFile file >>= \case
-      Right a  -> putStrLn "OK."    >> putStrLn "hasdf" -- print a
+      Right a  -> putStrLn "OK."    >> print a
       Left err -> putStrLn "ERROR." >> error (show err)
 
     _      -> do
