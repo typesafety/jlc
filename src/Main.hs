@@ -11,16 +11,16 @@ import Javalette.Par (pProg, myLexer)
 
 import qualified Typechecker as TC
 
-parse :: String -> Err Prog
-parse s = pProg $ myLexer s
-
-typecheck :: Prog -> Err Prog
-typecheck = TC.typecheck
-
 run :: String -> Err Prog
 run code = do
-  prog <- parse code
-  typecheck prog
+  -- Lex
+  let tokens = myLexer code
+
+  -- Parse
+  ast <- pProg tokens
+
+  -- Typecheck
+  TC.typecheck ast
 
 main :: IO ()
 main = do
