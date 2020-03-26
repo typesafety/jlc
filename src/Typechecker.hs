@@ -29,6 +29,8 @@ typecheck :: Prog -> Err Prog
 typecheck (Program topdefs) = do
   sigs <- getSigs topdefs
 
+  when (Ident "main" `notElem` M.keys sigs) $ fail "Missing main function"
+
   trace (show sigs) $ return ()
 
   return undefined
@@ -39,6 +41,7 @@ getSigs :: [TopDef] -> Err Signatures
 getSigs topDefs = do
   sigInfo <- mapM getSigInfo topDefs
 
+  -- Check for duplicate function names.
   let funIds = map fst sigInfo
   when (nubOrd funIds /= funIds)
     $ fail "Duplicate top-level function identifier"
@@ -55,6 +58,7 @@ getArgTypes :: [Arg] -> Err [Type]
 getArgTypes args = do
   let (types, ids) = unzip . map getArg $ args
 
+  -- Check for duplicate argument names or void argument types.
   when (nubOrd ids /= ids) $ fail "Duplicate argument identifier"
   when (Void `elem` types) $ fail "Function argument has type Void"
 
