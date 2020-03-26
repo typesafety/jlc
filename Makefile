@@ -1,12 +1,10 @@
 SRCDIR = src
 BNFC_MAKEFILE_NAME = BNFC_GENERATED.make
 
-all:
-	@echo "all: Not yet implemented"
+all: build
 
-build:
-	@echo "TEMPORARY command while testing stuff"
-	cd src && runhaskell Main.hs
+build: grammar
+	cabal build
 
 grammar:
 	bnfc -o $(SRCDIR) --makefile=$(BNFC_MAKEFILE_NAME) -d $(SRCDIR)/Javalette.cf

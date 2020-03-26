@@ -2,25 +2,28 @@
 
 module Main where
 
-import System.Environment (getArgs)
-import System.Exit (exitFailure)
+import qualified Control.Monad.Except as E
+import           System.Environment (getArgs)
+import           System.Exit (exitFailure)
 
 import Javalette.Abs (Prog)
-import Javalette.ErrM (Err (Ok, Bad))
 import Javalette.Par (pProg, myLexer)
 
+import qualified Errors as Errs
 import qualified Typechecker as TC
 
-run :: String -> Err Prog
+run :: String -> Either Errs.Error Prog
 run code = do
   -- Lex
   let tokens = myLexer code
 
-  -- Parse
-  ast <- pProg tokens
+  undefined
+  -- -- Parse
+  --  pProg tokens
 
-  -- Typecheck
-  TC.typecheck ast
+
+  -- -- Typecheck
+  -- TC.typecheck ast
 
 main :: IO ()
 main = do
@@ -28,7 +31,9 @@ main = do
   case args of
     -- Only supports a single file currently
     [file] -> run <$> readFile file >>= \case
-      Ok a    -> putStrLn "OK."    >> print a
-      Bad err -> putStrLn "ERROR." >> error err
+      Right a  -> putStrLn "OK."    >> putStrLn "hasdf" -- print a
+      Left err -> putStrLn "ERROR." >> error (show err)
 
-    _      -> putStrLn "> Run on a Javalette source file"
+    _      -> do
+      putStrLn "> Run on a Javalette source file"
+      exitFailure

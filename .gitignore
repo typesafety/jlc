@@ -5,3 +5,6 @@ testfiles/
 
 *.bak
 
+dist/
+dist-newstyle/
+
