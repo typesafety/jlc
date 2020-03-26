@@ -28,7 +28,7 @@ run code = do
     toEither :: Err Prog -> Either Errs.Error Prog
     toEither = \case
       Ok ast     -> Right ast
-      Bad errMsg -> Left $ Errs.GenericError errMsg
+      Bad errMsg -> Left $ Errs.Error errMsg
 
 main :: IO ()
 main = do

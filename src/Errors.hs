@@ -18,7 +18,7 @@ data Error
 
   -- Generic error message.
   -- (Error message)
-  | GenericError String
+  | Error String
 
 instance Show Error where
   -- TODO
@@ -34,7 +34,7 @@ instance Show Error where
       [ "`", showId id, "`", " was not found in the current context"
       ]
 
-    GenericError str -> str
+    Error str -> str
 
     where
       showId :: Ident -> String
