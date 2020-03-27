@@ -4,6 +4,7 @@ module Typechecker where
 
 import Debug.Trace
 
+import           Control.Applicative ((<|>))
 import           Control.Monad (when)
 import qualified Control.Monad.Except as E
 import qualified Control.Monad.Reader as R
@@ -236,8 +237,14 @@ getRet = ST.gets $ head . M.toList . last
 -- If so, return the type of its topmost occurrence, and throw an
 -- error otherwise.
 lookupVar :: Ident -> Typecheck Type
-lookupVar = undefined
+lookupVar id = ST.get >>= \ cxts -> case lookupVar' id cxts of
+  Just typ -> return typ
+  Nothing  -> err $ SymbolError id
 
+  where
+    lookupVar' :: Ident -> Env -> Maybe Type
+    lookupVar' _ []        = Nothing
+    lookupVar' id (c : cs) = M.lookup id c <|> lookupVar' id cs
 
 -- | Get the top level function signatures from a list of
 -- top level defintions
