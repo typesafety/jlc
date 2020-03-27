@@ -66,6 +66,8 @@ Void.       Type ::= "void" ;
 
 internal    Fun. Type ::= Type "(" [Type] ")" ;
 
+internal    Str. Type ::= "String" ;
+
 separator   Type "," ;
 
 --
@@ -100,7 +102,7 @@ EAnd.       Expr2 ::= Expr3 "&&" Expr2 ;
 
 EOr.        Expr1 ::= Expr2 "||" Expr1 ;
 
-AnnExp.     Expr ::= Expr1 "::" Type ;
+internal    AnnExp. Expr ::= Expr1 "::" Type ;
 
 coercions   Expr 7 ;
 
