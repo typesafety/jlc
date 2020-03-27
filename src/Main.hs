@@ -6,12 +6,11 @@ import qualified Control.Monad.Except as E
 import           System.Environment (getArgs)
 import           System.Exit (exitFailure)
 
-import Javalette.Abs (Prog)
-import Javalette.ErrM (Err (Ok, Bad))
-import Javalette.Par (pProg, myLexer)
-
 import qualified Errors as Errs
 import qualified Typechecker as TC
+import           Javalette.Abs (Prog)
+import           Javalette.ErrM (Err (Ok, Bad))
+import           Javalette.Par (pProg, myLexer)
 
 run :: String -> Either Errs.Error Prog
 run code = do

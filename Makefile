@@ -7,7 +7,8 @@ build: grammar
 	cabal build
 
 grammar:
-	bnfc -o $(SRCDIR) --makefile=$(BNFC_MAKEFILE_NAME) -d $(SRCDIR)/Javalette.cf
+	bnfc -o $(SRCDIR) -d $(SRCDIR)/Javalette.cf \
+	--makefile=$(BNFC_MAKEFILE_NAME)
 	cd $(SRCDIR) && make --makefile=$(BNFC_MAKEFILE_NAME) all
 
 test:

@@ -11,9 +11,8 @@ import qualified Control.Monad.State as ST
 import           Data.Containers.ListUtils (nubOrd)
 import qualified Data.Map.Strict as M
 
-import Javalette.Abs
-
 import Errors (Error (..))
+import Javalette.Abs
 
 type Typecheck a = R.ReaderT Signatures (ST.StateT Env (E.Except Error)) a
 
@@ -22,6 +21,10 @@ runTypecheck t =
   E.runExcept $ ST.evalStateT (R.runReaderT t emptySig) emptyEnv
 
 type Signatures = M.Map Ident ([Type], Type)
+
+type Context = M.Map Ident Type
+
+type Env = [Context]
 
 emptySig :: Signatures
 emptySig = M.fromList
@@ -32,12 +35,8 @@ emptySig = M.fromList
   , (Ident "printString", ([],       Void))
   ]
 
-type Context = M.Map Ident Type
-
 emptyCxt :: Context
 emptyCxt = M.empty
-
-type Env = [Context]
 
 emptyEnv :: Env
 emptyEnv = []
@@ -53,44 +52,131 @@ typecheck prog@(Program topdefs) = do
   annotated <- checkDefs prog
 
   trace (show annotated) $ return ()
-  return annotated
+  return prog
+
+-- * Functions for typechecking and annotating a program.
 
 checkDefs :: Prog -> Typecheck Prog
 checkDefs (Program topDefs) = Program <$> mapM checkDef topDefs
 
 checkDef :: TopDef -> Typecheck TopDef
-checkDef (FnDef typ id args blk) = do
+checkDef (FnDef typ id args (Block stmts)) = do
   -- First, add the function return type as the only binding in
   -- the bottom context of the stack. This bottom context will contain
   -- only this binding and serves only to store the return type.
   pushCxt
-  bindType (Ident "retType") typ
+  bindType id typ
 
   -- Then, push another context onto the stack and bind the types
   -- of the function arguments.
   pushCxt
   bindArgs args
 
-bindArgs :: [Arg] -> Typecheck ()
-bindArgs = do
-  c : cs <- get
-  --todo
-  M.union c . M.fromList . map bind $ args
+  -- Typecheck the statements in the function body.
+  annotated <- checkStmts stmts
 
+  -- Finally, when finished, pop the earlier two contexts off the stack
+  -- and return the annotated TopDef.
+  popCxt
+  popCxt
 
-bindType :: Ident -> Type -> Typecheck ()
-bindType id typ = updateCxt (M.insert id typ)
+  return $ FnDef typ id args (Block annotated)
 
-updateCxt :: (Context -> Context) -> Typecheck ()
-updateCxt f = ST.modify (\ (c : cs) -> f c : cs)
+checkStmts :: [Stmt] -> Typecheck [Stmt]
+checkStmts []       = return []
+checkStmts (s : ss) = do
+  s'  <- checkStmt s
+  ss' <- checkStmts ss
+  return $ s' : ss'
 
-pushCxt :: Typecheck ()
-pushCxt = ST.modify (M.empty :)
+checkStmt :: Stmt -> Typecheck Stmt
+checkStmt = \case
+  Empty -> return Empty
 
-popCxt :: Typecheck ()
-popCxt = ST.get >>= \case
-  []       -> error "attempted to pop context from empty stack"
-  (x : xs) -> ST.put xs
+  BStmt (Block stmts) -> do
+    pushCxt
+    checkedStmts <- checkStmts stmts
+    popCxt
+    return $ BStmt $ Block checkedStmts
+
+  Decl typ items -> do
+    checkedItems <- mapM (checkItem typ) items
+    return $ Decl typ checkedItems
+
+  Ass id exp -> do
+    varType <- lookupVar id
+    annExp <- checkExp [varType] exp
+    bindType id varType
+    return $ Ass id annExp
+
+  Incr id@(Ident name) -> lookupVar id >>= \case
+    Int -> return $ Incr id
+    typ -> err $ Error $ "Incrementing " ++ name ++ " requires type"
+                       ++ "int, but instead got type" ++ show typ
+
+  Decr id@(Ident name) -> lookupVar id >>= \case
+    Int -> return $ Incr id
+    typ -> err $ Error $ "Decrementing " ++ name ++ " requires type"
+                       ++ "int, but instead got type" ++ show typ
+
+  Ret exp -> inferExp exp >>= \case
+    annExp@(AnnExp e eType) -> do
+      checkRet eType
+      return $ Ret annExp
+    _ -> error $ "checkStmt:\n"
+               ++ "case Ret: inferExp did not return an annotated expression"
+
+  VRet -> do
+    checkRet Void
+    return VRet
+
+  If exp stmt -> do
+    annExp <- checkExp [Bool] exp
+    checkedStmt <- checkStmt stmt
+    return $ If annExp checkedStmt
+
+  IfElse exp s1 s2 -> do
+    annExp <- checkExp [Bool] exp
+    checkedS1 <- checkStmt s1
+    checkedS2 <- checkStmt s2
+    return $ IfElse annExp checkedS1 checkedS2
+
+  While exp stmt -> do
+    annExp <- checkExp [Bool] exp
+    checkedStmt <- checkStmt stmt
+    return $ While annExp checkedStmt
+
+  SExp exp -> inferExp exp >>= \ annExp -> return $ SExp annExp
+
+  where
+    -- Given a type, check that the return type of the current
+    -- function has the same type, and throw an error if not.
+    checkRet :: Type -> Typecheck ()
+    checkRet t = do
+      (id, retType) <- getRet
+      if t == retType
+        then return ()
+        else err $ ReturnError id retType t
+
+    -- Check that an expression has one the expected types, and if so,
+    -- return the annotated expression.
+    checkExp :: [Type] -> Expr -> Typecheck Expr
+    checkExp okTypes exp = inferExp exp >>= \case
+      annExp@(AnnExp e eType) ->
+        if eType `elem` okTypes
+          then return annExp
+          else err $ ExpError exp okTypes eType
+      _ -> error "checkExp: inferExp did not return an annotated expression"
+
+checkItem :: Type -> Item -> Typecheck Item
+checkItem typ item = case item of
+  NoInit id   -> return item
+  Init id exp -> inferExp exp >>= \case
+    annExp@(AnnExp e eType) ->
+      if typ == eType
+        then return $ Init id annExp
+        else err $ ExpError exp [typ] eType
+    _ -> error "checkItem: inferExp did not return an annotated expression"
 
 -- | Checks for the existence of main(), and that it has the
 -- correct arguments and return type.
@@ -106,6 +192,52 @@ checkMain sigs = case M.lookup (Ident "main") sigs of
       err $ Error "main() must have zero arguments"
 
     | otherwise -> return ()
+
+-- | Given an expression, infer its type and return the annotated expression.
+inferExp :: Expr -> Typecheck Expr
+inferExp = undefined
+
+-- * Functions related to modifying the context.
+
+bindArgs :: [Arg] -> Typecheck ()
+bindArgs args = ST.get >>= \case
+  []     -> error "bindArgs: empty context stack"
+  c : cs -> do
+    let c' = M.union c . M.fromList . map argToTuple $ args
+    ST.put $ c' : cs
+
+  where
+    argToTuple :: Arg -> (Ident, Type)
+    argToTuple (Argument typ id) = (id, typ)
+
+bindType :: Ident -> Type -> Typecheck ()
+bindType id typ = updateCxt (M.insert id typ)
+
+updateCxt :: (Context -> Context) -> Typecheck ()
+updateCxt f = ST.modify (\ (c : cs) -> f c : cs)
+
+pushCxt :: Typecheck ()
+pushCxt = ST.modify (M.empty :)
+
+popCxt :: Typecheck ()
+popCxt = ST.get >>= \case
+  []       -> error "popCxt: empty context stack"
+  (x : xs) -> ST.put xs
+
+-- | Return the current function's identifier and return type.
+-- Assumes that the context stack is implemented such that the bottom
+-- context contains only a single binding (the one of the current function).
+getRet :: Typecheck (Ident, Type)
+getRet = ST.gets $ head . M.toList . last
+
+-- * Various helper functions.
+
+-- | Given an identifier, check if it exists in the current context stack.
+-- If so, return the type of its topmost occurrence, and throw an
+-- error otherwise.
+lookupVar :: Ident -> Typecheck Type
+lookupVar = undefined
+
 
 -- | Get the top level function signatures from a list of
 -- top level defintions

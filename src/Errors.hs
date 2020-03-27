@@ -14,7 +14,11 @@ data Error
 
   -- When some variable is not found in the current context.
   -- (Name of variable)
-  | NameError Ident
+  | SymbolError Ident
+
+  -- When some expression has the incorrect inferred type.
+  -- (Expression) (Allowed types) (Actual inferred type) 
+  | ExpError Expr [Type] Type 
 
   -- Generic error message.
   -- (Error message)
@@ -28,6 +32,15 @@ instance Show Error where
       , "    ", showType expectedType, "\n"
       , "but incorrectly returns:\n"
       , "    ", showType actualType
+      ]
+
+    ExpError exp expectedTypes inferredType -> mconcat
+      [ "Expected expression\n"
+      , "    ", show exp, "\n"
+      , "to have one of the following types:\n"
+      , "    ", show $ map showType expectedTypes, "\n"
+      , "but instead the inferred type was:\n"
+      , "    ", showType inferredType
       ]
 
     SymbolError id -> mconcat
