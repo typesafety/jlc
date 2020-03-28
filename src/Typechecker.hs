@@ -161,7 +161,7 @@ checkStmt = \case
     checkRet :: Type -> Typecheck ()
     checkRet t = do
       (id, retType) <- getRet
-      if t == retType
+      if t `tEq` retType
         then return ()
         else err $ ReturnError id retType t
 
@@ -305,6 +305,7 @@ bindArgs args = ST.get >>= \case
 
 bindType :: Ident -> Type -> Typecheck ()
 bindType id typ = updateCxt (M.insert id typ)
+-- TODO: Fix issue with duplicate declarations
 
 updateCxt :: (Context -> Context) -> Typecheck ()
 updateCxt f = ST.modify (\ (c : cs) -> f c : cs)
