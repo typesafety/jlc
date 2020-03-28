@@ -5,7 +5,7 @@ module Typechecker where
 import Debug.Trace
 
 import           Control.Applicative ((<|>))
-import           Control.Monad (when)
+import           Control.Monad (when, zipWithM)
 import qualified Control.Monad.Except as E
 import qualified Control.Monad.Reader as R
 import qualified Control.Monad.State as ST
@@ -33,7 +33,7 @@ emptySig = M.fromList
   , (Ident "readDouble",  ([],       Double))
   , (Ident "printInt",    ([Int],    Void))
   , (Ident "printDouble", ([Double], Void))
-  , (Ident "printString", ([],       Void))
+  , (Ident "printString", ([Str],    Void))
   ]
 
 emptyCxt :: Context
@@ -42,23 +42,18 @@ emptyCxt = M.empty
 emptyEnv :: Env
 emptyEnv = []
 
--- | Typecheck (and annotate?) a parsed program.
+-- | Entry point, typecheck and annotate a parsed program.
 typecheck :: Prog -> Typecheck Prog
-typecheck prog@(Program topdefs) = do
-  sigs <- getSigs topdefs
-
-  trace (show topdefs) $ return ()
-
-  checkMain sigs
-  annotated <- checkDefs prog
-
-  trace (show annotated) $ return ()
-  return prog
+typecheck (Program topDefs) =
+  getSigs topDefs >>= \ sigs -> R.local (M.union sigs) $ do
+    checkMain
+    annotatedTopDefs <- checkDefs topDefs
+    return $ Program annotatedTopDefs
 
 -- * Functions for typechecking and annotating a program.
 
-checkDefs :: Prog -> Typecheck Prog
-checkDefs (Program topDefs) = Program <$> mapM checkDef topDefs
+checkDefs :: [TopDef] -> Typecheck [TopDef]
+checkDefs = mapM checkDef
 
 checkDef :: TopDef -> Typecheck TopDef
 checkDef (FnDef typ id args (Block stmts)) = do
@@ -73,7 +68,7 @@ checkDef (FnDef typ id args (Block stmts)) = do
   pushCxt
   bindArgs args
 
-  -- Typecheck the statements in the function body.
+  -- Typecheck the statements in the function body, annotating expressions.
   annotated <- checkStmts stmts
 
   -- Finally, when finished, pop the earlier two contexts off the stack
@@ -168,8 +163,8 @@ checkStmt = \case
 
 -- | Checks for the existence of main(), and that it has the
 -- correct arguments and return type.
-checkMain :: Signatures -> Typecheck ()
-checkMain sigs = case M.lookup (Ident "main") sigs of
+checkMain :: Typecheck ()
+checkMain = R.reader (M.lookup (Ident "main")) >>= \case
   Nothing -> err $ Error "Missing main() function"
 
   Just (argTypes, retType)
@@ -211,9 +206,19 @@ annotate topExp = do
       ELitDouble _ -> return (topExp, Double)
       ELitTrue     -> return (topExp, Bool)
       ELitFalse    -> return (topExp, Bool)
-      EString _   -> return (topExp, Str)
+      EString _    -> return (topExp, Str)
 
-      EApp id exp -> undefined
+      EApp id exps -> R.reader (M.lookup id) >>= \case
+        Nothing -> err $ SymbolError id
+        Just (argTypes, retType) -> do
+          -- Throw an error if number of arguments do not match the
+          -- number of parameters to the function.
+          when (length argTypes /= length exps)
+            $ err $ NumArgsError id (length argTypes) (length exps)
+
+          annExps <- zipWithM annotateWithType argTypes exps
+
+          return (EApp id annExps, Fun retType argTypes)
 
       EVar id -> do
         typ <- lookupVar id
@@ -276,7 +281,9 @@ annotate topExp = do
             then return (annE1, annE2, type1)
             else err $ ExpError e2 allowedTypes type2
 
+--
 -- * Functions related to modifying the context.
+--
 
 bindArgs :: [Arg] -> Typecheck ()
 bindArgs args = ST.get >>= \case
@@ -309,7 +316,9 @@ popCxt = ST.get >>= \case
 getRet :: Typecheck (Ident, Type)
 getRet = ST.gets $ head . M.toList . last
 
+--
 -- * Various helper functions.
+--
 
 -- | Given an identifier, check if it exists in the current context stack.
 -- If so, return the type of its topmost occurrence, and throw an
@@ -337,25 +346,26 @@ getSigs topDefs = do
 
   return $ M.fromList sigInfo
 
-getSigInfo :: TopDef -> Typecheck (Ident, ([Type], Type))
-getSigInfo (FnDef retType id args _) =
-  getArgTypes args >>= \ argTypes -> return (id, (argTypes, retType))
-
--- | Returns the argument types from a list of arguments, fails if
--- there are issues with any arguments.
-getArgTypes :: [Arg] -> Typecheck [Type]
-getArgTypes args = do
-  let (types, ids) = unzip . map getArg $ args
-
-  -- Check for duplicate argument names or void argument types.
-  when (nubOrd ids /= ids) $ err $ Error "Duplicate argument identifier"
-  when (Void `elem` types) $ err $ Error "Function argument has type Void"
-
-  return types
-
   where
-    getArg :: Arg -> (Type, Ident)
-    getArg (Argument typ id) = (typ, id)
+    getSigInfo :: TopDef -> Typecheck (Ident, ([Type], Type))
+    getSigInfo (FnDef retType id args _) =
+      getArgTypes args >>= \ argTypes -> return (id, (argTypes, retType))
+
+    -- Returns the argument types from a list of arguments, fails if
+    -- there are issues with any arguments.
+    getArgTypes :: [Arg] -> Typecheck [Type]
+    getArgTypes args = do
+      let (types, ids) = unzip . map getArg $ args
+
+      -- Check for duplicate argument names or void argument types.
+      when (nubOrd ids /= ids) $ err $ Error "Duplicate argument identifier"
+      when (Void `elem` types) $ err $ Error "Function argument has type Void"
+
+      return types
+
+      where
+        getArg :: Arg -> (Type, Ident)
+        getArg (Argument typ id) = (typ, id)
 
 err :: Error -> Typecheck a
 err = E.throwError
