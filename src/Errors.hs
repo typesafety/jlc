@@ -12,26 +12,38 @@ data Error
   -- (Name of function) (Expected return type) (Actual return type)
   = ReturnError Ident Type Type
 
-  -- When some variable is not found in the current context.
-  -- (Name of variable)
+  -- When a variable or function is not found in the current context.
+  -- (Name of variable/function)
   | SymbolError Ident
 
-  -- When some expression has the incorrect inferred type.
+  -- When a function call is given the incorrect number of arguments.
+  -- (Name of function) (Expected number of args) (Actual number of args)
+  | NumArgsError Ident Int Int
+
+  -- When a expression has the incorrect inferred type.
   -- (Expression) (Allowed types) (Actual inferred type) 
-  | ExpError Expr [Type] Type 
+  | ExpError Expr [Type] Type
 
   -- Generic error message.
   -- (Error message)
   | Error String
 
 instance Show Error where
-  -- TODO
   show = \case
     ReturnError id expectedType actualType -> mconcat
       [ "Function `", showId id, "` has return type:\n"
       , "    ", showType expectedType, "\n"
       , "but incorrectly returns:\n"
       , "    ", showType actualType
+      ]
+
+    SymbolError id -> mconcat
+      [ "Could not resolve symbol: `", showId id, "`"
+      ]
+
+    NumArgsError id expectedNum actualNum -> mconcat
+      [ "Function `", showId id, "` expected "
+      , show expectedNum, " arguments, but got ", show actualNum
       ]
 
     ExpError exp expectedTypes inferredType -> mconcat
@@ -41,10 +53,6 @@ instance Show Error where
       , "    ", show $ map showType expectedTypes, "\n"
       , "but instead the inferred type was:\n"
       , "    ", showType inferredType
-      ]
-
-    SymbolError id -> mconcat
-      [ "Could not resolve symbol: `", showId id, "`"
       ]
 
     Error str -> str
