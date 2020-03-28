@@ -64,4 +64,4 @@ instance Show Error where
       showType :: Type -> String
       showType = \case
         Fun retType argTypes -> "function of type " ++ show retType
-        t -> map toLower . show $ t
+        t -> show t

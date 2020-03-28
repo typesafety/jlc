@@ -11,6 +11,7 @@ import qualified Control.Monad.Reader as R
 import qualified Control.Monad.State as ST
 import           Data.Containers.ListUtils (nubOrd)
 import qualified Data.Map.Strict as M
+import           Data.Maybe (fromMaybe)
 
 import Errors (Error (..))
 import Javalette.Abs
@@ -180,10 +181,9 @@ checkMain = R.reader (M.lookup (Ident "main")) >>= \case
 -- match the given type.
 annotateWithType :: Type -> Expr -> Typecheck Expr
 annotateWithType expected exp = annotate exp >>= \case
-  annExp@(AnnExp e t) ->
-    if t == expected
-      then return annExp
-      else err $ ExpError exp [expected] t
+  annExp@(AnnExp e t)
+    | expected `tEq` t -> return annExp
+    | otherwise -> err $ ExpError exp [expected] t
   _ -> error "annotateWithType: `annotate` did not return an AnnExp expression"
 
 -- | Like @annotate@, but also return the type of the expression.
@@ -225,46 +225,46 @@ annotate topExp = do
         return (topExp, typ)
 
       Neg exp -> do
-        let okTypes = [Int, Double]
         (annExp, eType) <- annotate2 exp
-        if eType `elem` okTypes
+        let allowed = [Int, Double]
+        if eType `okType` allowed
           then return (Neg annExp, eType)
-          else err $ ExpError exp okTypes eType
+          else err $ ExpError exp allowed eType
 
       Not exp -> do
         (annExp, eType) <- annotate2 exp
-        if eType == Bool
+        if eType `okType` [Bool]
           then return (Neg annExp, eType)
           else err $ ExpError exp [Bool] eType
 
       EMul e1 op e2 -> do
-        (annE1, annE2, eType) <- annBinOp allowedTypes e1 e2
+        (annE1, annE2, eType) <- annBinOp allowedOperands Nothing e1 e2
         return (EMul annE1 op annE2, eType)
         where
-          allowedTypes :: [Type]
-          allowedTypes
-            | op `elem` [Times, Div] = [Int, Double] 
-            | op `elem` [Mod]        = [Int]
+          allowedOperands :: [Type]
+          allowedOperands
+            | op `elem` [Times, Div] = [Int, Double]
+            | op == Mod              = [Int]
 
       EAdd e1 op e2 -> do
-        (annE1, annE2, eType) <- annBinOp [Int, Double] e1 e2
+        (annE1, annE2, eType) <- annBinOp [Int, Double] Nothing e1 e2
         return (EAdd annE1 op annE2, eType)
 
       ERel e1 op e2 -> do
-        (annE1, annE2, eType) <- annBinOp allowedTypes e1 e2
+        (annE1, annE2, eType) <- annBinOp allowedOperands (Just Bool) e1 e2
         return (ERel annE1 op annE2, eType)
         where
-          allowedTypes :: [Type]
-          allowedTypes
-            | op `elem` [EQU, NE]          = [Int, Double, Bool] 
-            | op `elem` [LTH, LE, GTH, GE] = [Int, Double, Bool] 
+          allowedOperands :: [Type]
+          allowedOperands
+            | op `elem` [EQU, NE]          = [Int, Double, Bool]
+            | op `elem` [LTH, LE, GTH, GE] = [Int, Double]
 
       EAnd e1 e2 -> do
-        (annE1, annE2, eType) <- annBinOp [Bool] e1 e2
+        (annE1, annE2, eType) <- annBinOp [Bool] (Just Bool) e1 e2
         return (EAnd annE1 annE2, eType)
 
       EOr e1 e2 -> do
-        (annE1, annE2, eType) <- annBinOp [Bool] e1 e2
+        (annE1, annE2, eType) <- annBinOp [Bool] (Just Bool) e1 e2
         return (EOr annE1 annE2, eType)
 
       AnnExp{} ->
@@ -273,12 +273,16 @@ annotate topExp = do
       where
         -- Checks and annotates binary operations. Returns the annotated
         -- expressions and their types. Assumes that type casting is forbidden.
-        annBinOp :: [Type] -> Expr -> Expr -> Typecheck (Expr, Expr, Type)
-        annBinOp allowedTypes e1 e2 = do
+        annBinOp :: [Type]      -- Allowed types for operands
+                 -> Maybe Type  -- Possible return type
+                 -> Expr        -- Left operand
+                 -> Expr        -- Right operand
+                 -> Typecheck (Expr, Expr, Type)
+        annBinOp allowedTypes mbyRetType e1 e2 = do
           (annE1, type1) <- annotate2 e1
           (annE2, type2) <- annotate2 e2
-          if type1 `elem` allowedTypes && type1 == type2
-            then return (annE1, annE2, type1)
+          if type1 `okType` allowedTypes && type1 `tEq` type2
+            then return (annE1, annE2, fromMaybe type1 mbyRetType)
             else err $ ExpError e2 allowedTypes type2
 
 --
@@ -366,6 +370,19 @@ getSigs topDefs = do
       where
         getArg :: Arg -> (Type, Ident)
         getArg (Argument typ id) = (typ, id)
+
+-- | Version of (==) that treats a function call with
+-- return type T as equal to a `normal` type T.
+tEq :: Type -> Type -> Bool
+tEq t (Fun retType _) = t `tEq` retType
+tEq (Fun retType _) t = retType `tEq` t
+tEq t t'              = t == t'
+
+-- | Version of @elem@ that treats a function call with return type T
+-- as equal to a `normal type T.
+okType :: Type -> [Type] -> Bool
+okType _ []       = False
+okType t (x : xs) = t `tEq` x || okType t xs
 
 err :: Error -> Typecheck a
 err = E.throwError

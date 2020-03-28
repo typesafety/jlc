@@ -10,7 +10,7 @@ build: grammar
 	cabal configure --ghc
 	cabal build
 
-jlc: build
+jlc: clean build
 	cabal install --installdir="./"
 
 grammar:
