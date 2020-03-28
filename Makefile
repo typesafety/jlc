@@ -1,13 +1,16 @@
 SRCDIR = src
 BNFC_MAKEFILE_NAME = BNFC_GENERATED.make
 
-all: build install
+.PHONY: clean
+
+all: jlc
+
 
 build: grammar
 	cabal configure --ghc
 	cabal build
 
-install: build
+jlc: build
 	cabal install --installdir="./"
 
 grammar:
@@ -15,12 +18,17 @@ grammar:
 	--makefile=$(BNFC_MAKEFILE_NAME)
 	cd $(SRCDIR) && make --makefile=$(BNFC_MAKEFILE_NAME) all
 
-test:
-	@echo "test: Not yet implemented"
+submissionA:
+	tar -czf RENAMETHIS.tar.gz doc lib src jlc.cabal Makefile
+
+TESTARCHIVE = partA-1.tar.gz
+testA:
+	tar -czf $(TESTARCHIVE) doc lib src jlc.cabal Makefile
+	cd tester && python3 testing.py --archive ../$(TESTARCHIVE)
 
 clean:
-	rm -r dist-newstyle
-	rm ./jlc
-	rm cabal.project.local*
-	rm -r $(SRCDIR)/Javalette
-	rm $(SRCDIR)/$(BNFC_MAKEFILE_NAME)
+	-rm -r dist-newstyle
+	-rm ./jlc
+	-rm cabal.project.local*
+	-rm -r $(SRCDIR)/Javalette
+	-rm $(SRCDIR)/$(BNFC_MAKEFILE_NAME)

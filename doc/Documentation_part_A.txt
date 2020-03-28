@@ -1,7 +1,7 @@
 > How to use:
 After generating the executable `jlc` by running `make all` in the project
 root, the compiler can be run as an executable with one Javalette source
-file as its argument.
+file as its argument. Alternatively, the executable can read from stdin.
 
 > Language specification:
 Refer to the BNFC grammar at src/Javalette.cf.

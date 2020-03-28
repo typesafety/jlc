@@ -4,7 +4,8 @@ module Main where
 
 import qualified Control.Monad.Except as E
 import           System.Environment (getArgs)
-import           System.Exit (exitFailure)
+import           System.Exit (exitFailure, exitSuccess)
+import           System.IO (getContents, hPrint, hPutStrLn, stderr, stdin)
 
 import qualified Errors as Errs
 import qualified Typechecker as TC
@@ -29,15 +30,25 @@ run code = do
       Ok ast     -> Right ast
       Bad errMsg -> Left $ Errs.Error errMsg
 
-main :: IO ()
-main = do
+getInput :: IO String
+getInput = do
   args <- getArgs
   case args of
-    -- Only supports a single file currently
-    [file] -> run <$> readFile file >>= \case
-      Right a  -> putStrLn "OK."    >> print a
-      Left err -> putStrLn "ERROR." >> error (show err)
-
+    []     -> getContents
+    [file] -> readFile file
     _      -> do
-      putStrLn "> Run on a Javalette source file"
+      hPutStrLn stderr "> Usage: jlc <Javalette source file>"
+      exitFailure
+
+main :: IO ()
+main = do
+  input <- getInput
+  case run input of
+    Right _ -> do
+      hPutStrLn stderr "OK"
+      exitSuccess
+
+    Left err -> do
+      hPutStrLn stderr "ERROR"
+      hPrint stderr err
       exitFailure
