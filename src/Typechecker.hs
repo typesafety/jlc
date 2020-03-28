@@ -1,5 +1,4 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TupleSections #-}
 
 module Typechecker where
 
@@ -105,74 +104,57 @@ checkStmt = \case
     checkedItems <- mapM (checkItem typ) items
     return $ Decl typ checkedItems
 
-  {-
-      TODO:
-
-      Make inferExp make use of annotate!
-
-      so:
-
-      annotate :: Expr -> Typecheck Expr
-
-
-      inferExp :: Expr -> Typecheck Type
-      inferExp exp = case annotate exp of
-        AnnExp _ eType -> return eType
-        _ -> error "inferExp: annotate did not return an annotated expression"
-
-  -}
-
     where
       checkItem :: Type -> Item -> Typecheck Item
       checkItem expected item = case item of
         NoInit _   -> return item
-        Init _ exp -> checkExp [expected] exp
-
+        Init id exp -> do
+          annExp <- annotateWithType expected exp
+          return $ Init id annExp
 
   Ass id exp -> do
     varType <- lookupVar id
-    annExp <- fst <$> checkExp [varType] exp
-    bindType id varType
+    annExp <- annotateWithType varType exp
     return $ Ass id annExp
 
   Incr id@(Ident name) -> lookupVar id >>= \case
     Int -> return $ Incr id
-    typ -> err $ Error $ "Incrementing " ++ name ++ " requires type"
+    typ -> err $ Error $ "Incrementing (++) " ++ name ++ " requires type"
                        ++ "int, but instead got type" ++ show typ
 
   Decr id@(Ident name) -> lookupVar id >>= \case
     Int -> return $ Incr id
-    typ -> err $ Error $ "Decrementing " ++ name ++ " requires type"
+    typ -> err $ Error $ "Decrementing (--) " ++ name ++ " requires type"
                        ++ "int, but instead got type" ++ show typ
 
-  Ret exp -> inferExp exp >>= \case
-    annExp@(AnnExp e eType) -> do
-      checkRet eType
-      return $ Ret annExp
-    _ -> error $ "checkStmt:\n"
-               ++ "case Ret: inferExp did not return an annotated expression"
+  Ret exp -> do
+    (annExp, typ) <- annotate2 exp
+    checkRet typ
+    return $ Ret annExp
 
   VRet -> do
     checkRet Void
     return VRet
 
   If exp stmt -> do
-    (annExp, _) <- checkExp [Bool] exp
+    annExp <- annotateWithType Bool exp
     checkedStmt <- checkStmt stmt
     return $ If annExp checkedStmt
 
   IfElse exp s1 s2 -> do
-    annExp <- checkExp [Bool] exp
+    annExp <- annotateWithType Bool exp
     checkedS1 <- checkStmt s1
     checkedS2 <- checkStmt s2
     return $ IfElse annExp checkedS1 checkedS2
 
   While exp stmt -> do
-    annExp <- checkExp [Bool] exp
+    annExp <- annotateWithType Bool exp
     checkedStmt <- checkStmt stmt
     return $ While annExp checkedStmt
 
-  SExp exp -> inferExp exp >>= \ annExp -> return $ SExp annExp
+  SExp exp -> do
+    annExp <- annotate exp
+    return $ SExp annExp
 
   where
     -- Given a type, check that the return type of the current
@@ -183,15 +165,6 @@ checkStmt = \case
       if t == retType
         then return ()
         else err $ ReturnError id retType t
-
--- Check that an expression has one the expected types, and if so,
--- return the its actual inferred type.
-checkExp :: [Type] -> Expr -> Typecheck Type
-checkExp okTypes exp = do
-  inferred <- inferExp exp
-  if inferred `elem` okTypes
-    then return inferred
-    else err $ ExpError exp okTypes inferred
 
 -- | Checks for the existence of main(), and that it has the
 -- correct arguments and return type.
@@ -208,15 +181,21 @@ checkMain sigs = case M.lookup (Ident "main") sigs of
 
     | otherwise -> return ()
 
--- | Given an expression, infer its type and return the annotated expression.
-inferExp :: Expr -> Typecheck Type
-inferExp exp = snd <$> annotate2 exp
+-- | Run @annotate@ but throw an error if the inferred type does not
+-- match the given type.
+annotateWithType :: Type -> Expr -> Typecheck Expr
+annotateWithType expected exp = annotate exp >>= \case
+  annExp@(AnnExp e t) ->
+    if t == expected
+      then return annExp
+      else err $ ExpError exp [expected] t
+  _ -> error "annotateWithType: `annotate` did not return an AnnExp expression"
 
 -- | Like @annotate@, but also return the type of the expression.
 annotate2 :: Expr -> Typecheck (Expr, Type)
 annotate2 exp = annotate exp >>= \case
   AnnExp e t -> return (e, t)
-  _ -> error "inferExp: `annotate` did not return an annotated expression"
+  _ -> error "annotate2: `annotate` did not return an AnnExp expression"
 
 -- | Given an expression, infer its type and return its annotated version.
 -- This also annotates any sub-expressions.
