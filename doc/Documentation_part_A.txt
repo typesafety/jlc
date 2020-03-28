@@ -1,0 +1,13 @@
+> How to use:
+After generating the executable `jlc` by running `make all` in the project
+root, the compiler can be run as an executable with one Javalette source
+file as its argument.
+
+> Language specification:
+Refer to the BNFC grammar at src/Javalette.cf.
+
+> Shift/reduce conficts in the parser:
+
+* 
+
+If applicable, a list of features not implemented and the reason why.
