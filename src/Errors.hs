@@ -24,6 +24,11 @@ data Error
   -- (Expression) (Allowed types) (Actual inferred type) 
   | ExpError Expr [Type] Type
 
+  -- When attempting to declare a variable that already exists in
+  -- the current context.
+  -- (Name of variable)
+  | DuplicateDeclError Ident
+
   -- Generic error message.
   -- (Error message)
   | Error String
@@ -53,6 +58,11 @@ instance Show Error where
       , "    ", show $ map showType expectedTypes, "\n"
       , "but instead the inferred type was:\n"
       , "    ", showType inferredType
+      ]
+
+    DuplicateDeclError id -> mconcat
+      [ "Variable `", showId id, "` is already declared in"
+      , "the current context"
       ]
 
     Error str -> str
