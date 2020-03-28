@@ -103,9 +103,12 @@ checkStmt = \case
     where
       checkItem :: Type -> Item -> Typecheck Item
       checkItem expected item = case item of
-        NoInit _   -> return item
+        NoInit id   -> do
+          bindType id expected
+          return item
         Init id exp -> do
           annExp <- annotateWithType expected exp
+          bindType id expected
           return $ Init id annExp
 
   Ass id exp -> do
