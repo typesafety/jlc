@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 
 module Typechecker where
 
@@ -98,15 +99,39 @@ checkStmt = \case
     pushCxt
     checkedStmts <- checkStmts stmts
     popCxt
-    return $ BStmt $ Block checkedStmts
+    return $ BStmt (Block checkedStmts)
 
   Decl typ items -> do
     checkedItems <- mapM (checkItem typ) items
     return $ Decl typ checkedItems
 
+  {-
+      TODO:
+
+      Make inferExp make use of annotate!
+
+      so:
+
+      annotate :: Expr -> Typecheck Expr
+
+
+      inferExp :: Expr -> Typecheck Type
+      inferExp exp = case annotate exp of
+        AnnExp _ eType -> return eType
+        _ -> error "inferExp: annotate did not return an annotated expression"
+
+  -}
+
+    where
+      checkItem :: Type -> Item -> Typecheck Item
+      checkItem expected item = case item of
+        NoInit _   -> return item
+        Init _ exp -> checkExp [expected] exp
+
+
   Ass id exp -> do
     varType <- lookupVar id
-    annExp <- checkExp [varType] exp
+    annExp <- fst <$> checkExp [varType] exp
     bindType id varType
     return $ Ass id annExp
 
@@ -132,7 +157,7 @@ checkStmt = \case
     return VRet
 
   If exp stmt -> do
-    annExp <- checkExp [Bool] exp
+    (annExp, _) <- checkExp [Bool] exp
     checkedStmt <- checkStmt stmt
     return $ If annExp checkedStmt
 
@@ -159,25 +184,14 @@ checkStmt = \case
         then return ()
         else err $ ReturnError id retType t
 
-    -- Check that an expression has one the expected types, and if so,
-    -- return the annotated expression.
-    checkExp :: [Type] -> Expr -> Typecheck Expr
-    checkExp okTypes exp = inferExp exp >>= \case
-      annExp@(AnnExp e eType) ->
-        if eType `elem` okTypes
-          then return annExp
-          else err $ ExpError exp okTypes eType
-      _ -> error "checkExp: inferExp did not return an annotated expression"
-
-checkItem :: Type -> Item -> Typecheck Item
-checkItem typ item = case item of
-  NoInit id   -> return item
-  Init id exp -> inferExp exp >>= \case
-    annExp@(AnnExp e eType) ->
-      if typ == eType
-        then return $ Init id annExp
-        else err $ ExpError exp [typ] eType
-    _ -> error "checkItem: inferExp did not return an annotated expression"
+-- Check that an expression has one the expected types, and if so,
+-- return the its actual inferred type.
+checkExp :: [Type] -> Expr -> Typecheck Type
+checkExp okTypes exp = do
+  inferred <- inferExp exp
+  if inferred `elem` okTypes
+    then return inferred
+    else err $ ExpError exp okTypes inferred
 
 -- | Checks for the existence of main(), and that it has the
 -- correct arguments and return type.
@@ -195,8 +209,93 @@ checkMain sigs = case M.lookup (Ident "main") sigs of
     | otherwise -> return ()
 
 -- | Given an expression, infer its type and return the annotated expression.
-inferExp :: Expr -> Typecheck Expr
-inferExp = undefined
+inferExp :: Expr -> Typecheck Type
+inferExp exp = snd <$> annotate2 exp
+
+-- | Like @annotate@, but also return the type of the expression.
+annotate2 :: Expr -> Typecheck (Expr, Type)
+annotate2 exp = annotate exp >>= \case
+  AnnExp e t -> return (e, t)
+  _ -> error "inferExp: `annotate` did not return an annotated expression"
+
+-- | Given an expression, infer its type and return its annotated version.
+-- This also annotates any sub-expressions.
+annotate :: Expr -> Typecheck Expr
+annotate topExp = do
+  (exp', eType) <- ann
+  return $ AnnExp exp' eType
+
+  where
+    ann :: Typecheck (Expr, Type)
+    ann = case topExp of 
+      ELitInt _    -> return (topExp, Int)
+      ELitDouble _ -> return (topExp, Double)
+      ELitTrue     -> return (topExp, Bool)
+      ELitFalse    -> return (topExp, Bool)
+      EString _   -> return (topExp, Str)
+
+      EApp id exp -> undefined
+
+      EVar id -> do
+        typ <- lookupVar id
+        return (topExp, typ)
+
+      Neg exp -> do
+        let okTypes = [Int, Double]
+        (annExp, eType) <- annotate2 exp
+        if eType `elem` okTypes
+          then return (Neg annExp, eType)
+          else err $ ExpError exp okTypes eType
+
+      Not exp -> do
+        (annExp, eType) <- annotate2 exp
+        if eType == Bool
+          then return (Neg annExp, eType)
+          else err $ ExpError exp [Bool] eType
+
+      EMul e1 op e2 -> do
+        (annE1, annE2, eType) <- annBinOp allowedTypes e1 e2
+        return (EMul annE1 op annE2, eType)
+        where
+          allowedTypes :: [Type]
+          allowedTypes
+            | op `elem` [Times, Div] = [Int, Double] 
+            | op `elem` [Mod]        = [Int]
+
+      EAdd e1 op e2 -> do
+        (annE1, annE2, eType) <- annBinOp [Int, Double] e1 e2
+        return (EAdd annE1 op annE2, eType)
+
+      ERel e1 op e2 -> do
+        (annE1, annE2, eType) <- annBinOp allowedTypes e1 e2
+        return (ERel annE1 op annE2, eType)
+        where
+          allowedTypes :: [Type]
+          allowedTypes
+            | op `elem` [EQU, NE]          = [Int, Double, Bool] 
+            | op `elem` [LTH, LE, GTH, GE] = [Int, Double, Bool] 
+
+      EAnd e1 e2 -> do
+        (annE1, annE2, eType) <- annBinOp [Bool] e1 e2
+        return (EAnd annE1 annE2, eType)
+
+      EOr e1 e2 -> do
+        (annE1, annE2, eType) <- annBinOp [Bool] e1 e2
+        return (EOr annE1 annE2, eType)
+
+      AnnExp{} ->
+        error "annotate: attempting to annotate an annotated expression"
+
+      where
+        -- Checks and annotates binary operations. Returns the annotated
+        -- expressions and their types. Assumes that type casting is forbidden.
+        annBinOp :: [Type] -> Expr -> Expr -> Typecheck (Expr, Expr, Type)
+        annBinOp allowedTypes e1 e2 = do
+          (annE1, type1) <- annotate2 e1
+          (annE2, type2) <- annotate2 e2
+          if type1 `elem` allowedTypes && type1 == type2
+            then return (annE1, annE2, type1)
+            else err $ ExpError e2 allowedTypes type2
 
 -- * Functions related to modifying the context.
 
