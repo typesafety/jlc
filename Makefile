@@ -1,8 +1,12 @@
 SRCDIR = src
 
-.PHONY: clean
+.PHONY: clean prep
 
-all: jlc
+all: prep jlc
+
+prep:
+	stack install alex
+	stack install happy
 
 build: grammar
 	stack init --force
@@ -15,11 +19,6 @@ grammar:
 
 submissionA:
 	tar -czf RENAMETHIS.tar.gz doc lib src jlc.cabal Makefile
-
-TESTARCHIVE = partA-1.tar.gz
-testA:
-	tar -czf $(TESTARCHIVE) doc lib src jlc.cabal Makefile
-	cd tester && python3 testing.py --archive ../$(TESTARCHIVE)
 
 clean:
 	-rm ./jlc
