@@ -12,6 +12,10 @@ data Error
   -- (Name of function) (Expected return type) (Actual return type)
   = ReturnError Ident Type Type
 
+  -- When a return statement could not be found or reached in
+  -- a function.
+  | MissingReturnError Ident
+
   -- When a variable or function is not found in the current context.
   -- (Name of variable/function)
   | SymbolError Ident
@@ -40,6 +44,10 @@ instance Show Error where
       , "    ", showType expectedType, "\n"
       , "but incorrectly returns:\n"
       , "    ", showType actualType
+      ]
+
+    MissingReturnError id -> mconcat
+      [ "Function `", showId id, "`: missing reachable return statement"
       ]
 
     SymbolError id -> mconcat

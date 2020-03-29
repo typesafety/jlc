@@ -5,7 +5,7 @@ module Typechecker where
 import Debug.Trace
 
 import           Control.Applicative ((<|>))
-import           Control.Monad (when, zipWithM)
+import           Control.Monad (unless, when, zipWithM)
 import qualified Control.Monad.Except as E
 import qualified Control.Monad.Reader as R
 import qualified Control.Monad.State as ST
@@ -69,6 +69,12 @@ checkDef (FnDef typ id args (Block stmts)) = do
   pushCxt
   bindArgs args
 
+  -- Ensure reachable return statement(s) for non-void functions.
+  -- It is enough to check that return statements exists and are
+  -- reachable; any type-incorrect returnts will be caught in the
+  -- later call to `checkStmts`.
+  unless (typ == Void || reachableReturn stmts) $ err $ MissingReturnError id
+
   -- Typecheck the statements in the function body, annotating expressions.
   annotated <- checkStmts stmts
 
@@ -78,6 +84,20 @@ checkDef (FnDef typ id args (Block stmts)) = do
   popCxt
 
   return $ FnDef typ id args (Block annotated)
+
+-- | Returns True if a list of statements has guaranteed reachable
+-- return statements.
+reachableReturn :: [Stmt] -> Bool
+reachableReturn []       = False
+reachableReturn (s : ss) = case s of
+  Ret _                 -> True
+  BStmt (Block stmts)   -> reachableReturn stmts  || reachableReturn ss
+  If ELitTrue stmt      -> reachableReturn [stmt] || reachableReturn ss
+  IfElse ELitTrue s1 _  -> reachableReturn [s1]   || reachableReturn ss
+  IfElse ELitFalse _ s2 -> reachableReturn [s2]   || reachableReturn ss
+  While ELitTrue stmt   -> reachableReturn [stmt] || reachableReturn ss
+
+  _ -> reachableReturn ss
 
 checkStmts :: [Stmt] -> Typecheck [Stmt]
 checkStmts []       = return []
@@ -180,6 +200,10 @@ checkMain = R.reader (M.lookup (Ident "main")) >>= \case
 
     | otherwise -> return ()
 
+-- | Return the inferred type of an expression.
+inferExp :: Expr -> Typecheck Type
+inferExp exp = snd <$> annotate2 exp
+
 -- | Run @annotate@ but throw an error if the inferred type does not
 -- match the given type.
 annotateWithType :: Type -> Expr -> Typecheck Expr
@@ -204,7 +228,7 @@ annotate topExp = do
 
   where
     ann :: Typecheck (Expr, Type)
-    ann = case topExp of 
+    ann = case topExp of
       ELitInt _    -> return (topExp, Int)
       ELitDouble _ -> return (topExp, Double)
       ELitTrue     -> return (topExp, Bool)
