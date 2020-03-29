@@ -62,7 +62,7 @@ instance Show Error where
 
     DuplicateDeclError id -> mconcat
       [ "Variable `", showId id, "` is already declared in"
-      , "the current context"
+      , " the current context"
       ]
 
     Error str -> str

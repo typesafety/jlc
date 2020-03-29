@@ -304,8 +304,9 @@ bindArgs args = ST.get >>= \case
     argToTuple (Argument typ id) = (id, typ)
 
 bindType :: Ident -> Type -> Typecheck ()
-bindType id typ = updateCxt (M.insert id typ)
--- TODO: Fix issue with duplicate declarations
+bindType id typ = ST.gets (M.lookup id . head) >>= \case
+  Just _  -> err $ DuplicateDeclError id
+  Nothing -> updateCxt (M.insert id typ)
 
 updateCxt :: (Context -> Context) -> Typecheck ()
 updateCxt f = ST.modify (\ (c : cs) -> f c : cs)
