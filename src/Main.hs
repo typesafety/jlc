@@ -2,18 +2,17 @@
 
 module Main where
 
-import qualified Control.Monad.Except as E
 import           System.Environment (getArgs)
 import           System.Exit (exitFailure, exitSuccess)
 import           System.IO (getContents, hPrint, hPutStrLn, stderr, stdin)
 
-import qualified Errors as Errs
-import qualified Typechecker as TC
+import qualified Errors
+import qualified Typechecker
 import           Javalette.Abs (Prog)
 import           Javalette.ErrM (Err (Ok, Bad))
 import           Javalette.Par (pProg, myLexer)
 
-run :: String -> Either Errs.Error Prog
+run :: String -> Either Errors.Error Prog
 run code = do
   -- Lex
   let tokens = myLexer code
@@ -22,14 +21,16 @@ run code = do
   ast <- toEither $ pProg tokens
 
   -- Typecheck
-  TC.runTypecheck $ TC.typecheck ast
+  Typechecker.runTypecheck $ Typechecker.typecheck ast
 
   where
-    toEither :: Err Prog -> Either Errs.Error Prog
+    toEither :: Err Prog -> Either Errors.Error Prog
     toEither = \case
       Ok ast     -> Right ast
-      Bad errMsg -> Left $ Errs.Error errMsg
+      Bad errMsg -> Left $ Errors.Error errMsg
 
+-- | Read input from a given file name, or from stdin
+-- if no file name is given.
 getInput :: IO String
 getInput = do
   args <- getArgs

@@ -2,8 +2,6 @@
 
 module Typechecker where
 
-import Debug.Trace
-
 import           Control.Applicative ((<|>))
 import           Control.Monad (unless, when, zipWithM)
 import qualified Control.Monad.Except as E
@@ -47,7 +45,7 @@ emptyCxt = M.empty
 emptyEnv :: Env
 emptyEnv = []
 
--- | Entry point, typecheck and annotate a parsed program.
+-- | Entry point; typecheck and annotate a parsed program.
 typecheck :: Prog -> Typecheck Prog
 typecheck (Program topDefs) =
   getSigs topDefs >>= \ sigs -> R.local (M.union sigs) $ do
@@ -55,7 +53,9 @@ typecheck (Program topDefs) =
     annotatedTopDefs <- mapM checkDef topDefs
     return $ Program annotatedTopDefs
 
+--
 -- * Functions for typechecking and annotating a program.
+--
 
 checkDef :: TopDef -> Typecheck TopDef
 checkDef (FnDef typ id args (Block stmts)) = do
@@ -86,7 +86,7 @@ checkDef (FnDef typ id args (Block stmts)) = do
 
   return $ FnDef typ id args (Block annotated)
 
--- | Return True if the given list of statements is guaranteed to reach
+-- | Return @True@ if the given list of statements is guaranteed to reach
 -- reach a non-void return statement.
 reachableRet :: [Stmt] -> Bool
 reachableRet []       = False
@@ -103,6 +103,7 @@ reachableRet (s : ss) = case s of
 
   _ -> reachableRet ss
 
+-- | Typecheck a statment and annotate any sub-expressions.
 checkStmt :: Stmt -> Typecheck Stmt
 checkStmt = \case
   Empty -> return Empty
@@ -173,8 +174,8 @@ checkStmt = \case
       else throw $ NonVoidSExpError exp eType
 
   where
-    -- Given a type, check that the return type of the current
-    -- function has the same type, and throw an error if not.
+    -- Given a type, assert that the return type of the current
+    -- function has the same type, or throw an error if not.
     checkRet :: Type -> Typecheck ()
     checkRet t = do
       (id, retType) <- getRet
@@ -203,7 +204,7 @@ annotateWithType :: Type -> Expr -> Typecheck Expr
 annotateWithType expected exp = annotate exp >>= \case
   annExp@(AnnExp e t)
     | expected `tEq` t -> return annExp
-    | otherwise -> throw $ ExpError exp [expected] t
+    | otherwise        -> throw $ ExpError exp [expected] t
   _ -> error "annotateWithType: `annotate` did not return an AnnExp expression"
 
 -- | Like @annotate@, but also return the type of the expression.
@@ -374,7 +375,7 @@ lookupVar id = ST.get >>= \ cxts -> case lookupVar' id cxts of
     lookupVar' id (c : cs) = M.lookup id c <|> lookupVar' id cs
 
 -- | Get the top level function signatures from a list of
--- top level defintions
+-- top level definitions.
 getSigs :: [TopDef] -> Typecheck Signatures
 getSigs topDefs = do
   sigInfo <- mapM getSigInfo topDefs
@@ -411,15 +412,15 @@ getSigs topDefs = do
 
           return types
 
--- | Version of (==) that treats a function call with
--- return type T as equal to a `normal` type T.
+-- | Version of @(==)@ that treats a function call with
+-- _return type_ T as equal to the _actual_ type T.
 tEq :: Type -> Type -> Bool
 tEq t (Fun retType _) = t `tEq` retType
 tEq (Fun retType _) t = retType `tEq` t
 tEq t t'              = t == t'
 
--- | Version of @elem@ that treats a function call with return type T
--- as equal to a `normal type T.
+-- | Version of @elem@ that treats a function call with
+-- _return type_ T as equal to the _actual_ type T.
 okType :: Type -> [Type] -> Bool
 okType _ []       = False
 okType t (x : xs) = t `tEq` x || okType t xs
