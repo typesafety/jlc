@@ -8,3 +8,7 @@ testfiles/
 dist/
 dist-newstyle/
 
+.stack-work
+stack.*
+
+jlc
