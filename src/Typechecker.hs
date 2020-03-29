@@ -133,15 +133,13 @@ checkStmt = \case
     annExp <- annotateWithType varType exp
     return $ Ass id annExp
 
-  Incr id@(Ident name) -> lookupVar id >>= \case
+  Incr id -> lookupVar id >>= \case
     Int -> return $ Incr id
-    typ -> throw $ Error $ "Incrementing (++) " ++ name ++ " requires type"
-                       ++ "int, but instead got type" ++ show typ
+    typ -> throw $ IncrTypeError id typ
 
-  Decr id@(Ident name) -> lookupVar id >>= \case
+  Decr id -> lookupVar id >>= \case
     Int -> return $ Decr id
-    typ -> throw $ Error $ "Decrementing (--) " ++ name ++ " requires type"
-                       ++ "int, but instead got type" ++ show typ
+    typ -> throw $ DecrTypeError id typ
 
   Ret exp -> do
     (annExp, typ) <- annotate2 exp
@@ -188,14 +186,14 @@ checkStmt = \case
 -- correct arguments and return type.
 checkMain :: Typecheck ()
 checkMain = R.reader (M.lookup (Ident "main")) >>= \case
-  Nothing -> throw $ Error "Missing main() function"
+  Nothing -> throw $ MainError "Missing main() function"
 
   Just (argTypes, retType)
     | retType /= Int ->
-      throw $ Error "main() does not not have return type `int`"
+      throw $ MainError "main() does not not have return type `int`"
 
     | not $ null argTypes ->
-      throw $ Error "main() must have zero arguments"
+      throw $ MainError "main() must have zero parameters"
 
     | otherwise -> return ()
 
@@ -382,34 +380,36 @@ getSigs topDefs = do
   sigInfo <- mapM getSigInfo topDefs
 
   -- Check for duplicate function names.
-  let funIds = map fst sigInfo
-  when (nubOrd funIds /= funIds)
-    $ throw $ Error "Duplicate top-level function identifier"
+  let dupeIds = dupes . map fst $ sigInfo
+  unless (null dupeIds) $ throw $ DuplicateFunError (head dupeIds)
 
   return $ M.fromList sigInfo
 
   where
+    -- Return the list of elements that have duplicates in the input list.
+    dupes :: Eq a => [a] -> [a]
+    dupes [] = []
+    dupes (x : xs)
+      | x `elem` xs = x : filter (/= x) (dupes xs)
+      | otherwise   = dupes xs
+
     getSigInfo :: TopDef -> Typecheck (Ident, ([Type], Type))
     getSigInfo (FnDef retType id args _) =
       getArgTypes args >>= \ argTypes -> return (id, (argTypes, retType))
 
-    -- Return the argument types from a list of arguments, fail if
-    -- there are issues with any arguments.
-    getArgTypes :: [Arg] -> Typecheck [Type]
-    getArgTypes args = do
-      let (types, ids) = unzip . map getArg $ args
-
-      -- Check for duplicate argument names or void argument types.
-      when (nubOrd ids /= ids)
-        $ throw $ Error "Duplicate argument identifier"
-      when (Void `elem` types)
-        $ throw $ Error "Function argument has type Void"
-
-      return types
-
       where
-        getArg :: Arg -> (Type, Ident)
-        getArg (Argument typ id) = (typ, id)
+        -- Return the argument types from a list of arguments, fail if
+        -- there are issues with any arguments.
+        getArgTypes :: [Arg] -> Typecheck [Type]
+        getArgTypes args = do
+          let getArg (Argument t i) = (t, i)
+              (types, ids) = unzip . map getArg $ args
+
+          -- Check for duplicate argument names or void argument types.
+          unless (null . dupes $ ids) $ throw $ DuplicateParamError id
+          when (Void `elem` types) $ throw $ VoidParamError id
+
+          return types
 
 -- | Version of (==) that treats a function call with
 -- return type T as equal to a `normal` type T.

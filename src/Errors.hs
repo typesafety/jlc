@@ -17,6 +17,14 @@ data Error
   -- (Name of function)
   | MissingReturnError Ident
 
+  -- When attempting to increment a non-integer variable.
+  -- (Name of variable) (Actual type)
+  | IncrTypeError Ident Type
+
+  -- When attempting to decrement a non-integer variable.
+  -- (Name of variable) (Actual type)
+  | DecrTypeError Ident Type
+
   -- When a variable or function is not found in the current context.
   -- (Name of variable/function)
   | SymbolError Ident
@@ -34,9 +42,26 @@ data Error
   -- (Name of variable)
   | DuplicateDeclError Ident
 
+  -- When there exist multiple top-level function definitions with
+  -- identical names.
+  -- (Name of function)
+  | DuplicateFunError Ident
+
+  -- When a function has multiple parameters with identical names.
+  -- (Name of function)
+  | DuplicateParamError Ident
+
+  -- When a function has one or more parameters of type void.
+  -- (Name of function)
+  | VoidParamError Ident
+
   -- When a statement is a single expression but not of type void.
   -- (Expression) (Inferred type of expression)
   | NonVoidSExpError Expr Type
+
+  -- Generic, but main()-related error message.
+  -- (Error message)
+  | MainError String
 
   -- Generic error message.
   -- (Error message)
@@ -53,6 +78,16 @@ instance Show Error where
 
     MissingReturnError id -> mconcat
       [ "Function `", showId id, "`: missing reachable return statement"
+      ]
+
+    IncrTypeError id typ -> mconcat
+      [ "Incrementing (++) ", showId id, " requires type"
+      , "int, but instead got type: ", showType typ
+      ]
+
+    DecrTypeError id typ -> mconcat
+      [ "Decrementing (--) ", showId id, " requires type"
+      , "int, but instead got type: ", showType typ
       ]
 
     SymbolError id -> mconcat
@@ -78,6 +113,18 @@ instance Show Error where
       , " the current context"
       ]
 
+    DuplicateFunError id -> mconcat
+      [ "Duplicate top-level function identifier: `", showId id, "`"
+      ]
+
+    DuplicateParamError id -> mconcat
+      [ "Duplicate argument identifiers in function: `", showId id, "`"
+      ]
+
+    VoidParamError id -> mconcat
+      [ "Function: `", showId id, "` has parameter(s) of type void"
+      ]
+
     NonVoidSExpError exp inferredType -> mconcat
       [ "Statements consisting of single expressions must be of type void,"
       , " but the following expression:\n"
@@ -85,6 +132,8 @@ instance Show Error where
       , "had type:\n"
       , "    ", showType inferredType
       ]
+
+    MainError str -> str
 
     Error str -> str
 
