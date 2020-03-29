@@ -3,11 +3,55 @@ After generating the executable `jlc` by running `make all` in the project
 root, the compiler can be run as an executable with one Javalette source
 file as its argument. Alternatively, the executable can read from stdin.
 
+The compiler currently only performs lexing, parsing and typechecking.
+The output is a message "OK" if the given program passes all stages,
+or "ERROR" and an error message otherwise. These outputs will be outputted
+to stderr.
+
 > Language specification:
 Refer to the BNFC grammar at src/Javalette.cf.
 
 > Shift/reduce conficts in the parser:
 
-* 
+* There is one shift/reduce conflict that comes from the
+"dangling else"-ambiguity. In the happy-generated info file, we have
+something like this:
 
-If applicable, a list of features not implemented and the reason why.
+Stmt -> 'if' '(' Expr ')' Stmt .                    (rule 24)
+Stmt -> 'if' '(' Expr ')' Stmt . 'else' Stmt        (rule 25)
+
+where (.) indicates the current position.
+
+If we have nested if-statements, we can have the following problem:
+
+if (x) if (y) return a; . else return b;
+
+where x and y are expressions.
+
+Depending on whether we choose to shift the "else" or reduce the
+current stack, we will end up with one of two interpretations:
+
+Shift:
+    if (x) {
+        if (y) {
+            return a;
+        } else {
+            return b;
+        }
+    }
+
+Reduce:
+    if (x) {
+        if (y) {
+            return a;
+        }
+    } else {
+        return b;
+    }
+
+I.e. it becomes ambiguous whether the "else" should be attached to the
+outer or the inner "if".
+
+Choosing to always shift in these situations is conventional, and it
+works fine, rather than going through the work of rewriting the grammar
+to resolve the ambiguity.
