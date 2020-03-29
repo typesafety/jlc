@@ -73,7 +73,7 @@ checkDef (FnDef typ id args (Block stmts)) = do
   -- It is enough to check that return statements exists and are
   -- reachable; any type-incorrect returnts will be caught in the
   -- later call to `checkStmts`.
-  unless (typ == Void || reachableReturn stmts) $ err $ MissingReturnError id
+  unless (typ == Void || reachableRet stmts) $ err $ MissingReturnError id
 
   -- Typecheck the statements in the function body, annotating expressions.
   annotated <- checkStmts stmts
@@ -87,17 +87,20 @@ checkDef (FnDef typ id args (Block stmts)) = do
 
 -- | Returns True if a list of statements has guaranteed reachable
 -- return statements.
-reachableReturn :: [Stmt] -> Bool
-reachableReturn []       = False
-reachableReturn (s : ss) = case s of
+reachableRet :: [Stmt] -> Bool
+reachableRet []       = False
+reachableRet (s : ss) = case s of
   Ret _                 -> True
-  BStmt (Block stmts)   -> reachableReturn stmts  || reachableReturn ss
-  If ELitTrue stmt      -> reachableReturn [stmt] || reachableReturn ss
-  IfElse ELitTrue s1 _  -> reachableReturn [s1]   || reachableReturn ss
-  IfElse ELitFalse _ s2 -> reachableReturn [s2]   || reachableReturn ss
-  While ELitTrue stmt   -> reachableReturn [stmt] || reachableReturn ss
+  BStmt (Block stmts)   -> reachableRet stmts  || reachableRet ss
+  If ELitTrue stmt      -> reachableRet [stmt] || reachableRet ss
+  While ELitTrue stmt   -> reachableRet [stmt] || reachableRet ss
+  IfElse exp s1 s2
+    | exp == ELitTrue  -> reachableRet [s1] || reachableRet ss
+    | exp == ELitFalse -> reachableRet [s2] || reachableRet ss
+    | otherwise        -> (reachableRet [s1] && reachableRet [s2])
+                          || reachableRet ss
 
-  _ -> reachableReturn ss
+  _ -> reachableRet ss
 
 checkStmts :: [Stmt] -> Typecheck [Stmt]
 checkStmts []       = return []
@@ -142,7 +145,7 @@ checkStmt = \case
                        ++ "int, but instead got type" ++ show typ
 
   Decr id@(Ident name) -> lookupVar id >>= \case
-    Int -> return $ Incr id
+    Int -> return $ Decr id
     typ -> err $ Error $ "Decrementing (--) " ++ name ++ " requires type"
                        ++ "int, but instead got type" ++ show typ
 
@@ -172,8 +175,10 @@ checkStmt = \case
     return $ While annExp checkedStmt
 
   SExp exp -> do
-    annExp <- annotate exp
-    return $ SExp annExp
+    (annExp, eType) <- annotate2 exp
+    if eType `tEq` Void
+      then return $ SExp annExp
+      else err $ NonVoidSExpError exp eType
 
   where
     -- Given a type, check that the return type of the current
@@ -199,10 +204,6 @@ checkMain = R.reader (M.lookup (Ident "main")) >>= \case
       err $ Error "main() must have zero arguments"
 
     | otherwise -> return ()
-
--- | Return the inferred type of an expression.
-inferExp :: Expr -> Typecheck Type
-inferExp exp = snd <$> annotate2 exp
 
 -- | Run @annotate@ but throw an error if the inferred type does not
 -- match the given type.

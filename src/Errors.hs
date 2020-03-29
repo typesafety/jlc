@@ -14,6 +14,7 @@ data Error
 
   -- When a return statement could not be found or reached in
   -- a function.
+  -- (Name of function)
   | MissingReturnError Ident
 
   -- When a variable or function is not found in the current context.
@@ -32,6 +33,10 @@ data Error
   -- the current context.
   -- (Name of variable)
   | DuplicateDeclError Ident
+
+  -- When a statement is a single expression but not of type void.
+  -- (Expression) (Inferred type of expression)
+  | NonVoidSExpError Expr Type
 
   -- Generic error message.
   -- (Error message)
@@ -71,6 +76,14 @@ instance Show Error where
     DuplicateDeclError id -> mconcat
       [ "Variable `", showId id, "` is already declared in"
       , " the current context"
+      ]
+
+    NonVoidSExpError exp inferredType -> mconcat
+      [ "Statements consisting of single expressions must be of type void,"
+      , " but the following expression:\n"
+      , "    ", show exp, "\n"
+      , "had type:\n"
+      , "    ", showType inferredType
       ]
 
     Error str -> str
