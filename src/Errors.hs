@@ -2,8 +2,6 @@
 
 module Errors where
 
-import Data.Char (toLower)
-
 import Javalette.Abs
 
 data Error
@@ -143,5 +141,5 @@ instance Show Error where
 
       showType :: Type -> String
       showType = \case
-        Fun retType argTypes -> "function of type " ++ show retType
+        Fun retType _argTypes -> "function of type " ++ show retType
         t -> show t
