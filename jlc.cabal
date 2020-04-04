@@ -23,6 +23,7 @@ executable jlc
                      , Javalette.Lex
                      , Javalette.Par
                      , Errors
+                     , CodeGenerator
                      , Typechecker
   -- other-extensions:
   build-depends:       base >=4.12 && <4.13

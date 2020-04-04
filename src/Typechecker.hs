@@ -1,6 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Typechecker where
+module Typechecker
+  ( Typecheck
+  , runTypecheck
+  , typecheck
+  )
+  where
 
 import           Control.Applicative ((<|>))
 import           Control.Monad (unless, when, zipWithM)

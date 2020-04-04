@@ -7,6 +7,7 @@ import           System.Exit (exitFailure, exitSuccess)
 import           System.IO (getContents, hPrint, hPutStrLn, stderr, stdin)
 
 import qualified Errors
+import qualified CodeGenerator
 import qualified Typechecker
 import           Javalette.Abs (Prog)
 import           Javalette.ErrM (Err (Ok, Bad))
