@@ -8,3 +8,7 @@ testfiles/
 dist/
 dist-newstyle/
 
+jlc
+cabal.project.local
+tester/
+
