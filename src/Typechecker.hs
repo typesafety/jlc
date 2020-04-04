@@ -12,7 +12,6 @@ import           Control.Monad (unless, when, zipWithM)
 import qualified Control.Monad.Except as E
 import qualified Control.Monad.Reader as R
 import qualified Control.Monad.State as ST
-import           Data.Containers.ListUtils (nubOrd)
 import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe)
 
@@ -329,8 +328,8 @@ bindArgs args = ST.get >>= \case
 
 bindType :: Ident -> Type -> Typecheck ()
 bindType id typ = ST.get >>= \case
-  []     -> error "bindType: empty context stack"
-  c : cs -> case M.lookup id c of
+  []    -> error "bindType: empty context stack"
+  c : _ -> case M.lookup id c of
     Just _  -> throw $ DuplicateDeclError id
     Nothing -> updateCxt (M.insert id typ)
 
@@ -345,7 +344,7 @@ pushCxt = ST.modify (M.empty :)
 popCxt :: Typecheck ()
 popCxt = ST.get >>= \case
   []     -> error "popCxt: empty context stack"
-  c : cs -> ST.put cs
+  _ : cs -> ST.put cs
 
 --
 -- * Various helper functions.

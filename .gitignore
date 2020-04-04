@@ -12,3 +12,5 @@ jlc
 cabal.project.local
 tester/
 
+.stack-work
+stack.*
