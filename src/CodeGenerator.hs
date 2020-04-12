@@ -2,7 +2,8 @@ module CodeGenerator
   ( codeGen
   ) where
 
-import LLVM
+import           Javalette.Abs
+import qualified LLVM as L
 
 codeGen :: Prog -> IO ()
 codeGen = undefined
