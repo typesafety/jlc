@@ -35,6 +35,7 @@ module AlphaRename
 
 
 import           Control.Applicative ((<|>))
+import           Data.Bifunctor (first, second, bimap)
 
 import qualified Control.Monad.State as ST
 import qualified Data.Map.Strict as M
@@ -44,18 +45,19 @@ import           Javalette.Abs
 newtype Original = Original Ident
   deriving (Eq, Ord)
 
--- | The environment maps the original names to their alpha-renamed names.
-
 type Context = M.Map Original Ident
 
-type Env = [Context]
+{- | The environment maps the original names to their alpha-renamed names,
+and keeps the variable count.
+-}
+type Env = ([Context], Int)
 
 type Rename a = ST.State Env a
 
 runRename :: Rename a -> a
 runRename p = ST.evalState p emptyState
   where
-    emptyState = []
+    emptyState = ([], 0)
 
 {- | Takes an annotated AST and returns a syntactically identical
 AST where all variable names are unique. That is, any variable assignments
@@ -69,8 +71,12 @@ rename (Program topDefs) = Program <$> mapM renameDef topDefs
 
 renameDef :: TopDef -> Rename TopDef
 renameDef (FnDef typ id args (Block stmts)) = do
+  pushCxt
+
   newArgs <- mapM renameArg args
   newStmts <- mapM renameStmt stmts
+
+  popCxt
 
   return $ FnDef typ id newArgs (Block newStmts)
 
@@ -82,13 +88,13 @@ renameDef (FnDef typ id args (Block stmts)) = do
 
 -- | Adds an empty context to the top of the environment.
 pushCxt :: Rename ()
-pushCxt = ST.modify (M.empty :)
+pushCxt = ST.modify $ first (M.empty :)
 
 {- | Removes the top context from the environment. Crashes if the
 environment is empty.
 -}
 popCxt :: Rename ()
-popCxt = ST.modify tail'
+popCxt = ST.modify $ first tail'
   where
     tail' :: [a] -> [a]
     tail' = \case
@@ -100,10 +106,10 @@ original name. Crashes if it cannot be found; the typechecking phase
 should make failure impossible.
 -}
 lookupVar :: Ident -> Rename Ident
-lookupVar id = ST.gets (find id) >>= \case
+lookupVar id = ST.gets (find id . fst) >>= \case
   Just renamedVar -> return renamedVar
   Nothing         -> error $ "lookupVar: could not find variable "
                            ++ show id ++ " in environment"
   where
-    find :: Ident -> Env -> Maybe Ident
+    find :: Ident -> [Context] -> Maybe Ident
     find id = foldl (<|>) Nothing . map (M.lookup (Original id))
