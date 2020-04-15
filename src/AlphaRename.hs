@@ -11,6 +11,7 @@ int f() {
     int x = 5;
   }
   y = x;
+  x++;
   return y
 }
 
@@ -23,6 +24,7 @@ int f() {
     int v2 = 5;
   }
   int v3 = v0
+  int v4 = v0 + 1;
   return v3;
 }
 -}
@@ -71,6 +73,9 @@ rename (Program topDefs) = Program <$> mapM renameDef topDefs
 
 renameDef :: TopDef -> Rename TopDef
 renameDef (FnDef typ id args (Block stmts)) = do
+  -- For each new function definition, open up a new context
+  -- and reset the variable counter.
+  setCounter 0
   pushCxt
 
   newArgs <- mapM renameArg args
@@ -81,8 +86,41 @@ renameDef (FnDef typ id args (Block stmts)) = do
   return $ FnDef typ id newArgs (Block newStmts)
 
   where
-    renameArg = undefined
-    renameStmt = undefined
+    renameArg :: Arg -> Rename Arg
+    renameArg (Argument typ id) = Argument typ <$> stepIdent
+
+renameStmt :: Stmt -> Rename Stmt
+renameStmt stmt = case stmt of
+  BStmt (Block blkStmts) -> do
+    pushCxt
+    newBlkStmts <- mapM renameStmt blkStmts
+    popCxt
+    return $ BStmt (Block newBlkStmts)
+
+  Decl typ items -> Decl typ <$> mapM renameItem items
+    where
+      renameItem :: Item -> Rename Item
+      renameItem (NoInit _id)   = NoInit <$> stepIdent
+      renameItem (Init _id expr) = Init <$> stepIdent <*> renameExpr expr
+
+  -- Ass id expr ->
+
+  -- Incr id ->
+
+
+
+  -- Decr Ident
+  -- Ret Expr
+  -- VRet
+  -- If Expr Stmt
+  -- IfElse Expr Stmt Stmt
+  -- While Expr Stmt
+  -- SExp Expr
+
+  _ -> return stmt
+
+renameExpr :: Expr -> Rename Expr
+renameExpr = undefined
 
 -- * Helper functions for manipulating the environment.
 
@@ -101,6 +139,18 @@ popCxt = ST.modify $ first tail'
       []     -> error "popCxt: could not pop context from empty stack"
       x : xs -> xs
 
+-- | Sets the variable counter to the given value.
+setCounter :: Int -> Rename ()
+setCounter n = ST.modify $ second (const n)
+
+-- | Increment the variable counter by one.
+incrCounter :: Rename ()
+incrCounter = ST.modify $ second (+ 1)
+
+-- | Get the current value of the variable counter.
+getCounter :: Rename Int
+getCounter = ST.gets snd
+
 {- | Looks up the alpha-renamed version of an identifier, given the
 original name. Crashes if it cannot be found; the typechecking phase
 should make failure impossible.
@@ -113,3 +163,21 @@ lookupVar id = ST.gets (find id . fst) >>= \case
   where
     find :: Ident -> [Context] -> Maybe Ident
     find id = foldl (<|>) Nothing . map (M.lookup (Original id))
+
+nextVar :: Rename String
+nextVar = (\ n -> varBase ++ show n) <$> getCounter
+
+nextIdent :: Rename Ident
+nextIdent = Ident <$> nextVar
+
+{- | Return the next variable name as an Ident, and increment the
+ariable counter to the next free number. This both returns a value
+AND modifies the state.
+-}
+stepIdent :: Rename Ident
+stepIdent = nextIdent >>= \ id -> incrCounter >> return id
+
+-- * Other helper functions and constants.
+
+varBase :: String
+varBase = "v"
