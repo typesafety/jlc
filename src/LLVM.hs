@@ -7,15 +7,21 @@ module LLVM where
 data LLVM = LLVM
   [TypeDef]  -- ^ Type definitions
   [VarDef]   -- ^ Global variable definitions
-  [FunDef]
-  -- [Extern FunDecl]
-  -- [Extern (Global VarDef)]
+  [FunDef]   -- ^ Local (to the module) function definitions
+  [FunDecl]  -- ^ External function declarations
+             -- External global variables are not implemented.
 
 -- * Function definitions
+
+data FunDecl = FunDecl
+  Type   -- ^ Return type
+  Ident  -- ^ Function Name
+  [Arg]  -- ^ Parameters
 
 data FunDef = FunDef
   Type          -- ^ Return type
   Ident         -- ^ Function name
+  [Arg]         -- ^ Parameters
   [BasicBlock]  -- ^ Function body
 
 data LinkageType
