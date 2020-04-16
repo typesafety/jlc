@@ -41,6 +41,7 @@ import           Data.Bifunctor (first, second, bimap)
 
 import qualified Control.Monad.State as ST
 import qualified Data.Map.Strict as M
+import qualified GHC.Stack as Stack
 
 import           Javalette.Abs
 
@@ -124,12 +125,13 @@ renameExpr = undefined
 
 -- * Helper functions for manipulating the environment.
 
-{- | Crash with an error message and the provided function name if
-the context stack is empty. Otherwise, return the context stack
+{- | Crash with an error message and the call stack if
+the context stack is empty. Otherwise, return the context stack.
 -}
-checkEnv :: String -> Rename [Context]
-checkEnv callerName = ST.gets fst >>= \ cxts -> case cxts of
-  [] -> error $ callerName ++ ": empty context stack"
+fetchCxts :: Stack.HasCallStack => Rename [Context]
+fetchCxts = ST.gets fst >>= \ cxts -> case cxts of
+  [] -> error $ "empty context stack:\n"
+              ++ Stack.prettyCallStack Stack.callStack
   _  -> return cxts
 
 -- | Adds an empty context to the top of the environment.
@@ -140,7 +142,7 @@ pushCxt = ST.modify $ first (M.empty :)
 environment is empty.
 -}
 popCxt :: Rename ()
-popCxt = checkEnv "popCxt" >> ST.modify (first tail)
+popCxt = fetchCxts >> ST.modify (first tail)
 
 -- | Sets the variable counter to the given value.
 setCounter :: Int -> Rename ()
@@ -158,23 +160,43 @@ getCounter = ST.gets snd
 if the environment is empty.
 -}
 updateCxt :: (Context -> Context) -> Rename ()
-updateCxt f =
-  checkEnv "updateCxt" >> ST.modify (first $ \ (x : xs) -> f x : xs)
+updateCxt f = fetchCxts >> ST.modify (first $ \ (x : xs) -> f x : xs)
 
 -- | Create a new mapping between an original variable and its alpha-renaming.
 bindVar :: Original -> Ident -> Rename ()
-bindVar orig id = updateCxt (M.insert orig id)
+bindVar orig id = updateCxt $ M.insert orig id
 
 -- | Like @bindVar@, but automatically uses the next unique variable name.
--- bindNew :: Original -> Rename ()
--- bindNew orig = do
---   a <- nextIdent
---   ST.modify $ first 
+bindNew :: Original -> Rename ()
+bindNew orig = nextIdent >>= bindVar orig
 
+{- | Given an original variable name, look up its alpha-name and replace
+the topmost binding in the context stack and rebind it to a new unique
+variable. For example:
+
+@
+Context stack: [fromList [("x", "v1"), ("y", "v2")], fromList [("x", "v0")]]
+>>> rebind "x"
+
+New stack: [fromList [("x", "v3"), ("y", "v2")], fromList [("x", "v0")]]
+@
+-}
+rebind :: Original -> Rename ()
+rebind orig = do
+  v <- nextIdent
+  ST.modify $ first $ applyWhen (M.member orig) (M.adjust (const v) orig)
+  where
+    -- Apply a function on the first element in the list that
+    -- satisfies the predicate.
+    applyWhen :: (a -> Bool) -> (a -> a) -> [a] -> [a]
+    applyWhen _ _ [] = []
+    applyWhen p f (x : xs)
+      | p x       = f x : xs
+      | otherwise = x : applyWhen p f xs
 
 {- | Looks up the alpha-renamed version of an identifier, given the
 original name. Crashes if it cannot be found; the typechecking phase
-should make failure impossible.
+should make failure impossible, however.
 -}
 lookupVar :: Ident -> Rename Ident
 lookupVar id = ST.gets (find id . fst) >>= \case
