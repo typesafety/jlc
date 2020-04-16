@@ -1,4 +1,7 @@
+{-# LANGUAGE LambdaCase #-}
+
 {- | Module for running alpha-renaming of typechecked ASTs in order
+
 to make code generation easier. Each variable is replaced with
 a constant variable name suffixed with a unique counter.
 
@@ -28,8 +31,6 @@ int f() {
   return v3;
 }
 -}
-
-{-# LANGUAGE LambdaCase #-}
 
 module AlphaRename
   ( alphaRename
@@ -101,8 +102,14 @@ renameStmt stmt = case stmt of
   Decl typ items -> Decl typ <$> mapM renameItem items
     where
       renameItem :: Item -> Rename Item
-      renameItem (NoInit _id)   = NoInit <$> stepIdent
-      renameItem (Init _id expr) = Init <$> stepIdent <*> renameExpr expr
+      renameItem (NoInit id) = bindStepIdent id >>= NoInit
+      renameItem (Init id expr) = do
+        -- We rename expressions FIRST to properly handle cases like
+        -- int x = x + 1
+        -- where x was previously bound.
+        newExpr <- renameExpr
+        newVar <- bindStepIdent id
+        return $ Init newVar newExpr
 
   -- Ass id expr ->
 
@@ -123,7 +130,9 @@ renameStmt stmt = case stmt of
 renameExpr :: Expr -> Rename Expr
 renameExpr = undefined
 
+--
 -- * Helper functions for manipulating the environment.
+--
 
 {- | Crash with an error message and the call stack if
 the context stack is empty. Otherwise, return the context stack.
@@ -167,8 +176,9 @@ bindVar :: Original -> Ident -> Rename ()
 bindVar orig id = updateCxt $ M.insert orig id
 
 -- | Like @bindVar@, but automatically uses the next unique variable name.
-bindNew :: Original -> Rename ()
-bindNew orig = nextIdent >>= bindVar orig
+-- TODO: Consider removing
+-- bindNew :: Ident -> Rename ()
+-- bindNew orig = nextIdent >>= bindVar (Original orig)
 
 {- | Given an original variable name, look up its alpha-name and replace
 the topmost binding in the context stack and rebind it to a new unique
@@ -207,11 +217,12 @@ lookupVar id = ST.gets (find id . fst) >>= \case
     find :: Ident -> [Context] -> Maybe Ident
     find id = foldl (<|>) Nothing . map (M.lookup (Original id))
 
-nextVar :: Rename String
-nextVar = (\ n -> varBase ++ show n) <$> getCounter
-
+-- | Return the next available unique variable name as an Ident.
 nextIdent :: Rename Ident
 nextIdent = Ident <$> nextVar
+  where
+    nextVar :: Rename String
+    nextVar = (\ n -> varBase ++ show n) <$> getCounter
 
 {- | Return the next variable name as an Ident, and increment the
 ariable counter to the next free number. This both returns a value
@@ -220,7 +231,21 @@ AND modifies the state.
 stepIdent :: Rename Ident
 stepIdent = nextIdent >>= \ id -> incrCounter >> return id
 
+{- | Bind the next unique variable name @v@ to the given original id, then
+increment the counter and return @v@.
+
+This returns a value, modifies the context stack, and modifies the counter.
+-}
+bindStepIdent :: Ident -> Rename Ident
+bindStepIdent id = do
+  v <- nextIdent
+  bindVar (Original id) 
+  incrCounter
+  return v
+
+--
 -- * Other helper functions and constants.
+--
 
 varBase :: String
 varBase = "v"
