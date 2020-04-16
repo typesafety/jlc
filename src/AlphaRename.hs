@@ -91,8 +91,11 @@ renameDef (FnDef typ id args (Block stmts)) = do
     renameArg :: Arg -> Rename Arg
     renameArg (Argument typ id) = Argument typ <$> stepIdent
 
+{- | Perform alpha-renaming on a statement and any sub-statements or
+sub-expressions.
+-}
 renameStmt :: Stmt -> Rename Stmt
-renameStmt stmt = case stmt of
+renameStmt = \case
   BStmt (Block blkStmts) -> do
     pushCxt
     newBlkStmts <- mapM renameStmt blkStmts
@@ -118,19 +121,41 @@ renameStmt stmt = case stmt of
     newId <- rebindStepIdent id
     return $ Ass newId newExpr
 
-  -- Incr id ->
+  -- For the increment and decrement cases, we can simply rewrite
+  -- x++ and x-- to x = x + 1 and x = x - 1 respectively, and
+  -- recursively run renaming on the new statements.
+  -- NOTE: Hardcoding Int as the annotated type is OK here, since it is
+  -- the only allowed type, but if this changes then the rewrite from
+  -- Incr -> Ass should probably be done somewhere else.
+  Incr id ->
+    renameStmt $ Ass id $ AnnExp (EAdd (EVar id) Plus (ELitInt 1)) Int
 
+  Decr id ->
+    renameStmt $ Ass id $ AnnExp (EAdd (EVar id) Minus (ELitInt 1)) Int
 
+  Ret expr -> Ret <$> renameExpr expr
 
-  -- Decr Ident
-  -- Ret Expr
-  -- VRet
-  -- If Expr Stmt
-  -- IfElse Expr Stmt Stmt
-  -- While Expr Stmt
-  -- SExp Expr
+  If expr stmt -> do
+    newExpr <- renameExpr expr
+    newStmt <- renameStmt stmt
+    newStmt <- renameStmt stmt
+    -- Replace with If <$> newExpr <*> newStmt for style points
+    return $ If newExpr newStmt
 
-  _ -> return stmt
+  IfElse expr s1 s2 -> do
+    newExpr <- renameExpr expr
+    newS1 <- renameStmt s1
+    newS2 <- renameStmt s2
+    return $ IfElse newExpr newS1 newS2
+
+  While expr stmt -> do
+    newExpr <- renameExpr expr
+    newStmt <- renameStmt stmt
+    return $ While newExpr newStmt
+
+  SExp expr -> SExp <$> renameExpr expr
+
+  stmt -> return stmt
 
 renameExpr :: Expr -> Rename Expr
 renameExpr = undefined
