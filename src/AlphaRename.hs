@@ -124,6 +124,14 @@ renameExpr = undefined
 
 -- * Helper functions for manipulating the environment.
 
+{- | Crash with an error message and the provided function name if
+the context stack is empty. Otherwise, return the context stack
+-}
+checkEnv :: String -> Rename [Context]
+checkEnv callerName = ST.gets fst >>= \ cxts -> case cxts of
+  [] -> error $ callerName ++ ": empty context stack"
+  _  -> return cxts
+
 -- | Adds an empty context to the top of the environment.
 pushCxt :: Rename ()
 pushCxt = ST.modify $ first (M.empty :)
@@ -132,12 +140,7 @@ pushCxt = ST.modify $ first (M.empty :)
 environment is empty.
 -}
 popCxt :: Rename ()
-popCxt = ST.modify $ first tail'
-  where
-    tail' :: [a] -> [a]
-    tail' = \case
-      []     -> error "popCxt: could not pop context from empty stack"
-      x : xs -> xs
+popCxt = checkEnv "popCxt" >> ST.modify (first tail)
 
 -- | Sets the variable counter to the given value.
 setCounter :: Int -> Rename ()
@@ -150,6 +153,24 @@ incrCounter = ST.modify $ second (+ 1)
 -- | Get the current value of the variable counter.
 getCounter :: Rename Int
 getCounter = ST.gets snd
+
+{- | Perform some update to the top context in the environment. Crash
+if the environment is empty.
+-}
+updateCxt :: (Context -> Context) -> Rename ()
+updateCxt f =
+  checkEnv "updateCxt" >> ST.modify (first $ \ (x : xs) -> f x : xs)
+
+-- | Create a new mapping between an original variable and its alpha-renaming.
+bindVar :: Original -> Ident -> Rename ()
+bindVar orig id = updateCxt (M.insert orig id)
+
+-- | Like @bindVar@, but automatically uses the next unique variable name.
+-- bindNew :: Original -> Rename ()
+-- bindNew orig = do
+--   a <- nextIdent
+--   ST.modify $ first 
+
 
 {- | Looks up the alpha-renamed version of an identifier, given the
 original name. Crashes if it cannot be found; the typechecking phase
