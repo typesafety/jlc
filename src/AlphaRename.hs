@@ -102,16 +102,21 @@ renameStmt stmt = case stmt of
   Decl typ items -> Decl typ <$> mapM renameItem items
     where
       renameItem :: Item -> Rename Item
-      renameItem (NoInit id) = bindStepIdent id >>= NoInit
+      renameItem (NoInit id) = NoInit <$> bindStepIdent id
       renameItem (Init id expr) = do
         -- We rename expressions FIRST to properly handle cases like
         -- int x = x + 1
         -- where x was previously bound.
-        newExpr <- renameExpr
-        newVar <- bindStepIdent id
-        return $ Init newVar newExpr
+        newExpr <- renameExpr expr
+        newId <- bindStepIdent id
+        return $ Init newId newExpr
 
-  -- Ass id expr ->
+  Ass id expr -> do
+    -- Again, important to consider the order of evaluation; we
+    -- rename the expression FIRST.
+    newExpr <- renameExpr expr
+    newId <- rebindStepIdent id
+    return $ Ass newId newExpr
 
   -- Incr id ->
 
@@ -239,9 +244,16 @@ This returns a value, modifies the context stack, and modifies the counter.
 bindStepIdent :: Ident -> Rename Ident
 bindStepIdent id = do
   v <- nextIdent
-  bindVar (Original id) 
+  bindVar (Original id) v
   incrCounter
   return v
+
+-- | Like @bindStepIdent@, but using @rebind@ instead of @bindVar@.
+rebindStepIdent :: Ident -> Rename Ident
+rebindStepIdent id = do
+  rebind (Original id)
+  incrCounter
+  lookupVar id
 
 --
 -- * Other helper functions and constants.
