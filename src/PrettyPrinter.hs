@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase   #-}
  
 -- | Module for prettyprinting Javalette ASTs, mainly for
 -- debugging purposes.
@@ -8,9 +8,9 @@ module PrettyPrinter
   , prettyPrint
   ) where
 
-import           Data.Bifunctor (first, second)
 import           Data.Functor ((<&>))
-import           Data.List (intercalate, intersperse)
+import           Data.List (intercalate)
+import           Control.Applicative (liftA2)
 import qualified Control.Monad.Reader as R
 
 import           Javalette.Abs
@@ -19,19 +19,15 @@ import           Javalette.Abs
 prettyPrint :: Pretty a => Int -> a -> String
 prettyPrint n = flip runPrettyP n . pPrint
 
-type PrettyP a = R.Reader (Int, Int) a
+type PrettyP a = R.Reader Int a
 
 runPrettyP :: PrettyP a -> Int -> a
-runPrettyP p indentSize = R.runReader p (indentSize, 0 :: Int)
+runPrettyP = R.runReader
 
-indentSize :: PrettyP Int
-indentSize = R.asks fst
-
-indent :: PrettyP String
-indent = flip replicate ' ' <$> R.asks snd
-
-increaseIndent :: (Int, Int) -> (Int, Int)
-increaseIndent (size, curr) = (size, curr + size)
+getIndent :: PrettyP String
+getIndent = do
+  indentSize <- R.ask
+  pure $ replicate indentSize ' '
 
 class Pretty a where
   pPrint :: a -> PrettyP String
@@ -40,20 +36,30 @@ instance Pretty Prog where
   pPrint (Program topDefs) = intercalate "\n" <$> mapM pPrint topDefs
 
 instance Pretty TopDef where
-  pPrint (FnDef typ id args blk) = do
-    indent <- R.ask
+  pPrint (FnDef typ id args (Block stmts)) = do
     pTyp <- pPrint typ
     pId <- pPrint id
     pArgs <- mapM pPrint args
-    pBlk <- R.local increaseIndent $ pPrint blk
+
+    indent <- getIndent
+    pStmts <- unlines . map (indent ++) . concatMap lines
+      <$> mapM pPrint stmts
+
     pure $ mconcat
-      [ pTyp, " ", pId, "(", intercalate ", " pArgs, ") {\n"
-      , pBlk, "\n"
-      , "}"
+      [ pTyp, " ", pId, "(", intercalate ", " pArgs, ")\n"
+      , "{\n"
+      , pStmts
+      , "}\n"
       ]
 
 instance Pretty Blk where
-  pPrint (Block stmts) = intercalate "\n" <$> mapM pPrint stmts
+  pPrint (Block stmts) = do
+    let close = (++ ["}"])
+    let open  = ("{" :)
+
+    indent <- getIndent
+    unlines . open . close . map (indent ++) . concatMap lines
+      <$> mapM pPrint stmts
 
 instance Pretty Arg where
   pPrint (Argument typ id) =
@@ -79,8 +85,7 @@ instance Pretty Stmt where
   pPrint = \case
     Empty -> pure ""
 
-    BStmt blk ->
-      ("{\n" ++) <$> R.local increaseIndent (pPrint blk) <&> (++ "\n}\n")
+    BStmt blk -> pPrint blk
 
     Decl typ items -> do
       pTyp <- pPrint typ
@@ -99,32 +104,43 @@ instance Pretty Stmt where
 
     If expr stmt -> do
       pExpr <- pPrint expr
-      pStmt <- R.local increaseIndent $ pPrint stmt
+      pStmt <- pPrint stmt
+      indent <- decideIndent stmt
       pure $ mconcat
         [ "if (", pExpr, ")\n"
-        , pStmt, "\n"
+        , indent, pStmt
         ]
 
     IfElse expr s1 s2 -> do
       pExpr <- pPrint expr
-      pS1 <- R.local increaseIndent $ pPrint s1
-      pS2 <- R.local increaseIndent $ pPrint s2
+      pS1 <- pPrint s1
+      pS2 <- pPrint s2
+      indent1 <- decideIndent s1
+      indent2 <- decideIndent s2
       pure $ mconcat
         [ "if (", pExpr, ")\n"
-        , pS1, "\n"
+        , indent1, pS1, "\n"
         , "else\n"
-        , pS2, "\n"
+        , indent2, pS2
         ]
 
     While expr stmt -> do
       pExpr <- pPrint expr
       pStmt <- pPrint stmt
+      indent <- decideIndent stmt
       pure $ mconcat
         [ "while (", pExpr, ")\n"
-        , pStmt, "\n"
+        , indent, pStmt
         ]
 
     SExp expr -> pPrint expr <&> (++ ";")
+
+    where
+      -- Return the indentation if the given statement is not a block.
+      decideIndent :: Stmt -> PrettyP String
+      decideIndent = \case
+        BStmt{} -> pure ""
+        _       -> getIndent
 
 instance Pretty Expr where
   pPrint = \case
