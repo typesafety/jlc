@@ -26,6 +26,7 @@ executable jlc
                      , CodeGenerator
                      , Errors
                      , LLVM
+                     , PrettyPrinter
                      , Typechecker
   -- other-extensions:
   build-depends:       base >=4.12 && <4.13

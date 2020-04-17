@@ -7,8 +7,9 @@ import           System.Exit (exitFailure, exitSuccess)
 import           System.IO (getContents, hPrint, hPutStrLn, stderr, stdin)
 
 import qualified AlphaRename
-import qualified Errors
 import qualified CodeGenerator
+import qualified Errors
+import qualified PrettyPrinter
 import qualified Typechecker
 
 import           Javalette.Abs (Prog)
@@ -50,8 +51,9 @@ main :: IO ()
 main = do
   input <- getInput
   case run input of
-    Right _ -> do
+    Right prog -> do
       hPutStrLn stderr "OK"
+      putStrLn $ PrettyPrinter.prettyPrint 4 prog
       exitSuccess
 
     Left err -> do
