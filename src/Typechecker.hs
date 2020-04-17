@@ -1,11 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 
 module Typechecker
-  ( Typecheck
-  , runTypecheck
-  , typecheck
-  )
-  where
+  ( typecheck
+  ) where
 
 import           Control.Applicative ((<|>))
 import           Control.Monad (unless, when, zipWithM)
@@ -50,12 +47,15 @@ emptyEnv :: Env
 emptyEnv = []
 
 -- | Entry point; typecheck and annotate a parsed program.
-typecheck :: Prog -> Typecheck Prog
-typecheck (Program topDefs) =
-  getSigs topDefs >>= \ sigs -> R.local (M.union sigs) $ do
-    checkMain
-    annotatedTopDefs <- mapM checkDef topDefs
-    return $ Program annotatedTopDefs
+typecheck :: Prog -> Either Error Prog
+typecheck = runTypecheck . typecheck'
+  where
+    typecheck' :: Prog -> Typecheck Prog
+    typecheck' (Program topDefs) =
+      getSigs topDefs >>= \ sigs -> R.local (M.union sigs) $ do
+        checkMain
+        annotatedTopDefs <- mapM checkDef topDefs
+        return $ Program annotatedTopDefs
 
 --
 -- * Functions for typechecking and annotating a program.

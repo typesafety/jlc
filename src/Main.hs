@@ -6,6 +6,7 @@ import           System.Environment (getArgs)
 import           System.Exit (exitFailure, exitSuccess)
 import           System.IO (getContents, hPrint, hPutStrLn, stderr, stdin)
 
+import qualified AlphaRename
 import qualified Errors
 import qualified CodeGenerator
 import qualified Typechecker
@@ -23,7 +24,9 @@ run code = do
   ast <- toEither $ pProg tokens
 
   -- Typecheck
-  Typechecker.runTypecheck $ Typechecker.typecheck ast
+  annotated <- Typechecker.typecheck ast
+
+  return $ AlphaRename.alphaRename annotated
 
   where
     toEither :: Err Prog -> Either Errors.Error Prog
