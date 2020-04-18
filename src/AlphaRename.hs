@@ -156,7 +156,13 @@ renameStmt = \case
     newS2 <- decideBlock <$> renameStmt s2
     return [IfElse newExpr newS1 newS2]
 
+  -- For while-loops, we need to check the conditional expression
+  -- for IDs; we need to declare a-vars for these _before_
+  -- entering the loop, and then refer to them inside the loop. This
+  -- is necessary to enable falsification of the loop condition
+  -- after entering the loop.
   While expr stmt -> do
+    -- TODO:!!
     newExpr <- renameExpr expr
     newStmt <- decideBlock <$> renameStmt stmt
     return [While newExpr newStmt]
