@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase   #-}
+{-# LANGUAGE LambdaCase #-}
  
 -- | Module for prettyprinting Javalette ASTs, mainly for
 -- debugging purposes.
@@ -10,7 +10,6 @@ module PrettyPrinter
 
 import           Data.Functor ((<&>))
 import           Data.List (intercalate)
-import           Control.Applicative (liftA2)
 import qualified Control.Monad.Reader as R
 
 import           Javalette.Abs
