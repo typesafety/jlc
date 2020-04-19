@@ -128,7 +128,30 @@ renameStmt = \case
   stmt -> return stmt
 
 renameExpr :: Expr -> Rename Expr
-renameExpr = undefined
+renameExpr = \case
+  EVar id -> EVar <$> lookupVar (Original id)
+  EApp id exprs -> EApp id <$> mapM renameExpr exprs
+  Neg  expr -> Neg <$> renameExpr expr
+  Not  expr -> Not <$> renameExpr expr
+  EMul e1 op e2 -> binOpRename (flip EMul op) e1 e2
+  EAdd e1 op e2 -> binOpRename (flip EAdd op) e1 e2
+  ERel e1 op e2 -> binOpRename (flip ERel op) e1 e2
+  EAnd e1 e2    -> binOpRename EAnd e1 e2
+  EOr  e1 e2    -> binOpRename EOr e1 e2
+
+  AnnExp{} -> error annExpErr
+
+  -- Catch-all for cases which do not need renaming.
+  expr -> return expr
+
+  where
+    binOpRename :: (Expr -> Expr -> Expr) -> Expr -> Expr -> Rename Expr
+    binOpRename constr e1 e2 = constr <$> renameExpr e1 <*> renameExpr e2
+
+    annExpErr :: String
+    annExpErr =
+      "AlphaRename.renameExpr: encountered AnnExp; alpha-renaming should be"
+      ++ " performed before type checking (and type annotation)"
 
 --
 -- * Helper functions for manipulating the environment.
