@@ -25,6 +25,7 @@ import qualified GHC.Stack as Stack
 
 import           Javalette.Abs
 
+
 newtype Original = Original Ident
   deriving (Eq, Ord)
 
@@ -41,7 +42,7 @@ runRename :: Rename a -> a
 runRename p = ST.evalState p newEnv
 
 newEnv :: Env
-newEnv = ([], 0)
+newEnv = ([M.empty], 0)
 
 {- | Takes an AST and returns an equivalent AST where all variable
 names are unique. That is, regardless of scope, any variable names
@@ -58,11 +59,7 @@ rename (Program defs) =
 renameDef :: TopDef -> Rename TopDef
 renameDef (FnDef typ id args blk) = do
   aArgs <- mapM renameArg args
-
-  pushCxt
   aBlk <- renameBlk blk
-  popCxt
-
   return $ FnDef typ id aArgs aBlk
 
   where
