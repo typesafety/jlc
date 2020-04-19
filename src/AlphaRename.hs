@@ -19,7 +19,7 @@ import           Control.Applicative ((<|>))
 import           Data.Bifunctor (first, second, bimap)
 import           Data.Maybe (fromMaybe)
 
-import qualified Control.Monad.State as ST
+import qualified Control.Monad.State.Strict as ST
 import qualified Data.Map.Strict as M
 import qualified GHC.Stack as Stack
 
@@ -38,16 +38,97 @@ type Env = ([Context], Int)
 type Rename a = ST.State Env a
 
 runRename :: Rename a -> a
-runRename p = ST.evalState p emptyState
-  where
-    emptyState = ([], 0)
+runRename p = ST.evalState p newEnv
 
-{- | Takes an annotated AST and returns a syntactically identical
-AST where all variable names are unique. That is, any variable assignments
-will appear only once per variable name.
+newEnv :: Env
+newEnv = ([], 0)
+
+{- | Takes an AST and returns an equivalent AST where all variable
+names are unique. That is, regardless of scope, any variable names
+are used only once per function definition.
 -}
 alphaRename :: Prog -> Prog
 alphaRename = runRename . rename
+
+rename :: Prog -> Rename Prog
+rename (Program defs) =
+  -- Each top-level function is renamed independently of another.
+  Program <$> mapM (ST.withState (const newEnv) . renameDef) defs
+
+renameDef :: TopDef -> Rename TopDef
+renameDef (FnDef typ id args blk) = do
+  aArgs <- mapM renameArg args
+
+  pushCxt
+  aBlk <- renameBlk blk
+  popCxt
+
+  return $ FnDef typ id aArgs aBlk
+
+  where
+    renameArg :: Arg -> Rename Arg
+    renameArg (Argument typ id) = Argument typ <$> bindStepAlpha id
+
+renameBlk :: Blk -> Rename Blk
+renameBlk (Block stmts) = Block <$> mapM renameStmt stmts
+
+renameStmt :: Stmt -> Rename Stmt
+renameStmt = \case
+  BStmt blk -> do
+    pushCxt
+    aBlk <- renameBlk blk
+    popCxt
+    return $ BStmt aBlk
+
+  Decl typ items -> Decl typ <$> mapM renameItem items
+    where
+      renameItem :: Item -> Rename Item
+      renameItem (NoInit id) = NoInit <$> bindStepAlpha id
+      renameItem (Init id expr) = do
+        -- We rename the expression FIRST to properly handle cases like
+        -- int x = x + 1
+        -- where x was previously bound.
+        aExpr <- renameExpr expr
+        aVar <- bindStepAlpha id
+        return $ Init aVar aExpr
+
+  Ass id expr -> do
+    -- Again, important to consider the order of evaluation; we
+    -- do renaming on the expression FIRST.
+    aExpr <- renameExpr expr
+    -- Then, look up the a-var of the original id that is being assigned to.
+    aVar <- lookupVar (Original id)
+    return $ Ass aVar aExpr
+
+  Incr id -> Incr <$> lookupVar (Original id)
+  Decr id -> Decr <$> lookupVar (Original id)
+
+  Ret expr -> Ret <$> renameExpr expr
+
+  If expr stmt -> do
+    -- TODO: Check if it's possible to replace with If <$> aExpr <*> aStmt
+    aExpr <- renameExpr expr
+    aStmt <- renameStmt stmt
+    return $ If aExpr aStmt
+
+  IfElse expr s1 s2 -> do
+    aExpr <- renameExpr expr
+    aS1 <- renameStmt s1
+    aS2 <- renameStmt s2
+    return $ IfElse aExpr aS1 aS2
+
+  While expr stmt -> do
+    aExpr <- renameExpr expr
+    aStmt <- renameStmt stmt
+    return $ While aExpr aStmt
+
+  SExp expr -> SExp <$> renameExpr expr
+
+  -- Catch-all case for statements that need no renaming.
+  stmt -> return stmt
+
+renameExpr :: Expr -> Rename Expr
+renameExpr = undefined
 
 --
 -- * Helper functions for manipulating the environment.
