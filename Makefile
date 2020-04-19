@@ -18,7 +18,7 @@ grammar:
 	bnfc -o $(SRCDIR) -d $(SRCDIR)/Javalette.cf
 
 submissionA:
-	tar -czf RENAMETHIS.tar.gz doc lib src jlc.cabal Makefile
+	tar -czf partA-999.tar.gz doc lib src jlc.cabal Makefile
 
 clean:
 	-rm ./jlc
