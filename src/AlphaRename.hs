@@ -17,6 +17,7 @@ module AlphaRename
 
 import           Control.Applicative ((<|>))
 import           Data.Bifunctor (first, second, bimap)
+import           Data.Maybe (fromMaybe)
 
 import qualified Control.Monad.State as ST
 import qualified Data.Map.Strict as M
@@ -56,10 +57,9 @@ alphaRename = runRename . rename
 the context stack is empty. Otherwise, return the context stack.
 -}
 fetchCxts :: Stack.HasCallStack => Rename [Context]
-fetchCxts = ST.gets fst >>= \ cxts -> case cxts of
-  [] -> error $ "empty context stack:\n"
-              ++ Stack.prettyCallStack Stack.callStack
-  _  -> return cxts
+fetchCxts = ST.gets fst >>= \case
+  []   -> error $ stackStr ++ "\nempty context stack"
+  cxts -> return cxts
 
 -- | Adds an empty context to the top of the environment.
 pushCxt :: Rename ()
@@ -117,17 +117,20 @@ rebind orig aVar =
       | otherwise = x : applyWhen p f xs
 
 {- | Look up the alpha-variable, given the original id.
-Crashes if the original id cannot be found; the typechecking phase
-should make failure impossible, however.
+Crashes if the original id cannot be found.
 -}
-lookupVar :: Ident -> Rename Ident
-lookupVar id = ST.gets (find id . fst) >>= \case
-  Just aVar -> return aVar
-  Nothing   -> error $ "lookupVar: could not find id "
-                     ++ show id ++ " in environment"
+lookupVar :: Stack.HasCallStack => Original -> Rename Ident
+lookupVar orig = fromMaybe (error errMsg) <$> ST.gets (find orig . fst)
   where
-    find :: Ident -> [Context] -> Maybe Ident
-    find id = foldl (<|>) Nothing . map (M.lookup (Original id))
+    find :: Original -> [Context] -> Maybe Ident
+    find orig = foldl (<|>) Nothing . map (M.lookup orig)
+
+    errMsg :: Stack.HasCallStack => String
+    errMsg = stackStr ++ "\nCould not find original id `" ++ showOrig orig
+             ++ "` in environment"
+
+    showOrig :: Original -> String
+    showOrig (Original (Ident name)) = name
 
 -- | Return the next available alpha-variable as an Ident.
 nextAlpha :: Rename Ident
@@ -173,3 +176,6 @@ rebindStepAlpha id = do
 
 varBase :: String
 varBase = "v"
+
+stackStr :: Stack.HasCallStack => String
+stackStr = Stack.prettyCallStack Stack.callStack
