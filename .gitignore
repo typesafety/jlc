@@ -14,3 +14,5 @@ tester/
 
 .stack-work
 stack.*
+
+*.tar*
