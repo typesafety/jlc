@@ -38,7 +38,7 @@ variable names as IDs (id), and the alpha-renamed variants as VARIABLEs
 
 -}
 
-module AlphaRename
+module AlphaRenameOld
   ( alphaRename
   ) where
 
