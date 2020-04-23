@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Typechecker
-  ( typecheck
+module TypeChecker
+  ( typeCheck
   ) where
 
 import           Control.Applicative ((<|>))
@@ -19,10 +19,10 @@ import Javalette.Abs
 -- * Type synonyms and related functions
 --
 
-type Typecheck a = R.ReaderT Signatures (ST.StateT Env (E.Except Error)) a
+type TypeCheck a = R.ReaderT Signatures (ST.StateT Env (E.Except Error)) a
 
-runTypecheck :: Typecheck a -> Either Error a
-runTypecheck t =
+runTypeCheck :: TypeCheck a -> Either Error a
+runTypeCheck t =
   E.runExcept $ ST.evalStateT (R.runReaderT t emptySig) emptyEnv
 
 type Signatures = M.Map Ident ([Type], Type)
@@ -47,11 +47,11 @@ emptyEnv :: Env
 emptyEnv = []
 
 -- | Entry point; typecheck and annotate a parsed program.
-typecheck :: Prog -> Either Error Prog
-typecheck = runTypecheck . typecheck'
+typeCheck :: Prog -> Either Error Prog
+typeCheck = runTypeCheck . typeCheck'
   where
-    typecheck' :: Prog -> Typecheck Prog
-    typecheck' (Program topDefs) =
+    typeCheck' :: Prog -> TypeCheck Prog
+    typeCheck' (Program topDefs) =
       getSigs topDefs >>= \ sigs -> R.local (M.union sigs) $ do
         checkMain
         annotatedTopDefs <- mapM checkDef topDefs
@@ -61,7 +61,7 @@ typecheck = runTypecheck . typecheck'
 -- * Functions for typechecking and annotating a program.
 --
 
-checkDef :: TopDef -> Typecheck TopDef
+checkDef :: TopDef -> TypeCheck TopDef
 checkDef (FnDef typ id args (Block stmts)) = do
   -- First, add the function return type as the only binding in
   -- the bottom context of the stack. This bottom context will contain
@@ -80,7 +80,7 @@ checkDef (FnDef typ id args (Block stmts)) = do
   -- later call to `checkStmts`.
   unless (typ == Void || reachableRet stmts) $ throw $ MissingReturnError id
 
-  -- Typecheck the statements in the function body, annotating expressions.
+  -- TypeCheck the statements in the function body, annotating expressions.
   annotated <- mapM checkStmt stmts
 
   -- Finally, when finished, pop the earlier two contexts off the stack
@@ -107,8 +107,8 @@ reachableRet (s : ss) = case s of
 
   _ -> reachableRet ss
 
--- | Typecheck a statment and annotate any sub-expressions.
-checkStmt :: Stmt -> Typecheck Stmt
+-- | TypeCheck a statment and annotate any sub-expressions.
+checkStmt :: Stmt -> TypeCheck Stmt
 checkStmt = \case
   Empty -> return Empty
 
@@ -123,7 +123,7 @@ checkStmt = \case
     return $ Decl typ checkedItems
 
     where
-      checkItem :: Type -> Item -> Typecheck Item
+      checkItem :: Type -> Item -> TypeCheck Item
       checkItem expected item = case item of
         NoInit id   -> do
           bindType id expected
@@ -180,7 +180,7 @@ checkStmt = \case
   where
     -- Given a type, assert that the return type of the current
     -- function has the same type, or throw an error if not.
-    checkRet :: Type -> Typecheck ()
+    checkRet :: Type -> TypeCheck ()
     checkRet t = do
       (id, retType) <- getRet
       if t `tEq` retType
@@ -189,7 +189,7 @@ checkStmt = \case
 
 -- | Check for the existence of main() and ensure that it has the
 -- correct arguments and return type.
-checkMain :: Typecheck ()
+checkMain :: TypeCheck ()
 checkMain = R.reader (M.lookup (Ident "main")) >>= \case
   Nothing -> throw $ MainError "Missing main() function"
 
@@ -204,7 +204,7 @@ checkMain = R.reader (M.lookup (Ident "main")) >>= \case
 
 -- | Run @annotate@ but throw an error if the inferred type does not
 -- match the given type.
-annotateWithType :: Type -> Expr -> Typecheck Expr
+annotateWithType :: Type -> Expr -> TypeCheck Expr
 annotateWithType expected exp = annotate exp >>= \case
   annExp@(AnnExp e t)
     | expected `tEq` t -> return annExp
@@ -212,20 +212,20 @@ annotateWithType expected exp = annotate exp >>= \case
   _ -> error "annotateWithType: `annotate` did not return an AnnExp expression"
 
 -- | Like @annotate@, but also return the type of the expression.
-annotate2 :: Expr -> Typecheck (Expr, Type)
+annotate2 :: Expr -> TypeCheck (Expr, Type)
 annotate2 exp = annotate exp >>= \case
   AnnExp e t -> return (e, t)
   _ -> error "annotate2: `annotate` did not return an AnnExp expression"
 
 -- | Given an expression, infer its type and return its annotated version.
 -- This also annotates any sub-expressions.
-annotate :: Expr -> Typecheck Expr
+annotate :: Expr -> TypeCheck Expr
 annotate topExp = do
   (exp', eType) <- ann
   return $ AnnExp exp' eType
 
   where
-    ann :: Typecheck (Expr, Type)
+    ann :: TypeCheck (Expr, Type)
     ann = case topExp of
       ELitInt _    -> return (topExp, Int)
       ELitDouble _ -> return (topExp, Double)
@@ -303,7 +303,7 @@ annotate topExp = do
                  -> Maybe Type  -- Optional enforced return type
                  -> Expr        -- Left operand
                  -> Expr        -- Right operand
-                 -> Typecheck (Expr, Expr, Type)
+                 -> TypeCheck (Expr, Expr, Type)
         annBinOp allowedTypes mbyRetType e1 e2 = do
           (annE1, type1) <- annotate2 e1
           (annE2, type2) <- annotate2 e2
@@ -315,7 +315,7 @@ annotate topExp = do
 -- * Functions related to modifying the environment.
 --
 
-bindArgs :: [Arg] -> Typecheck ()
+bindArgs :: [Arg] -> TypeCheck ()
 bindArgs args = ST.get >>= \case
   []     -> error "bindArgs: empty context stack"
   c : cs -> do
@@ -326,22 +326,22 @@ bindArgs args = ST.get >>= \case
     argToTuple :: Arg -> (Ident, Type)
     argToTuple (Argument typ id) = (id, typ)
 
-bindType :: Ident -> Type -> Typecheck ()
+bindType :: Ident -> Type -> TypeCheck ()
 bindType id typ = ST.get >>= \case
   []    -> error "bindType: empty context stack"
   c : _ -> case M.lookup id c of
     Just _  -> throw $ DuplicateDeclError id
     Nothing -> updateCxt (M.insert id typ)
 
-updateCxt :: (Context -> Context) -> Typecheck ()
+updateCxt :: (Context -> Context) -> TypeCheck ()
 updateCxt f = ST.get >>= \case
   []     -> error "updateCxt: empty context stack"
   c : cs -> ST.put $ f c : cs
 
-pushCxt :: Typecheck ()
+pushCxt :: TypeCheck ()
 pushCxt = ST.modify (M.empty :)
 
-popCxt :: Typecheck ()
+popCxt :: TypeCheck ()
 popCxt = ST.get >>= \case
   []     -> error "popCxt: empty context stack"
   _ : cs -> ST.put cs
@@ -353,7 +353,7 @@ popCxt = ST.get >>= \case
 -- | Return the current function's identifier and return type.
 -- Assumes that the context stack is implemented such that the bottom
 -- context contains only a single binding (the one of the current function).
-getRet :: Typecheck (Ident, Type)
+getRet :: TypeCheck (Ident, Type)
 getRet = ST.get >>= \ env -> case getRet' env of
   Left msg      -> error msg
   Right binding -> return binding
@@ -368,7 +368,7 @@ getRet = ST.get >>= \ env -> case getRet' env of
 -- | Given an identifier, check if it exists in the current context stack.
 -- If so, return the type of its topmost ("latest") occurrence, or throw an
 -- error otherwise.
-lookupVar :: Ident -> Typecheck Type
+lookupVar :: Ident -> TypeCheck Type
 lookupVar id = ST.get >>= \ cxts -> case lookupVar' id cxts of
   Just typ -> return typ
   Nothing  -> throw $ SymbolError id
@@ -380,7 +380,7 @@ lookupVar id = ST.get >>= \ cxts -> case lookupVar' id cxts of
 
 -- | Get the top level function signatures from a list of
 -- top level definitions.
-getSigs :: [TopDef] -> Typecheck Signatures
+getSigs :: [TopDef] -> TypeCheck Signatures
 getSigs topDefs = do
   sigInfo <- mapM getSigInfo topDefs
 
@@ -398,14 +398,14 @@ getSigs topDefs = do
       | x `elem` xs = x : filter (/= x) (dupes xs)
       | otherwise   = dupes xs
 
-    getSigInfo :: TopDef -> Typecheck (Ident, ([Type], Type))
+    getSigInfo :: TopDef -> TypeCheck (Ident, ([Type], Type))
     getSigInfo (FnDef retType id args _) =
       getArgTypes args >>= \ argTypes -> return (id, (argTypes, retType))
 
       where
         -- Return the argument types from a list of arguments, fail if
         -- there are issues with any arguments.
-        getArgTypes :: [Arg] -> Typecheck [Type]
+        getArgTypes :: [Arg] -> TypeCheck [Type]
         getArgTypes args = do
           let getArg (Argument t i) = (t, i)
               (types, ids) = unzip . map getArg $ args
@@ -429,5 +429,5 @@ okType :: Type -> [Type] -> Bool
 okType _ []       = False
 okType t (x : xs) = t `tEq` x || okType t xs
 
-throw :: Error -> Typecheck a
+throw :: Error -> TypeCheck a
 throw = E.throwError

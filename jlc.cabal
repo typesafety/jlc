@@ -27,7 +27,7 @@ executable jlc
                      , Errors
                      , LLVM
                      , PrettyPrinter
-                     , Typechecker
+                     , TypeChecker
   -- other-extensions:
   build-depends:       base >=4.12 && <4.13
                      , array

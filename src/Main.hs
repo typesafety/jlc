@@ -10,7 +10,7 @@ import qualified AlphaRename
 import qualified CodeGenerator
 import qualified Errors
 import qualified PrettyPrinter
-import qualified Typechecker
+import qualified TypeChecker
 
 import           Javalette.Abs (Prog)
 import           Javalette.ErrM (Err (Ok, Bad))
@@ -24,10 +24,16 @@ run code = do
   -- Parse
   ast <- toEither $ pProg tokens
 
-  -- Typecheck
-  annotated <- Typechecker.typecheck ast
+  -- Type check. We perform type checking before desugaring and
+  -- other preprocessing, as we want errors to be as helpful as
+  -- possible. In the future, it might be a good idea to have
+  -- multiple type checking phases. For example, it would be
+  -- ncie to have a type checking after preprocessing to ensure
+  -- that we have not broken the code by desugaring or alpha-renaming.
+  annotatedAst <- TypeChecker.typeCheck ast
 
-  return $ AlphaRename.alphaRename annotated
+  -- Alpha-rename
+  return $ AlphaRename.alphaRename annotatedAst
 
   where
     toEither :: Err Prog -> Either Errors.Error Prog
