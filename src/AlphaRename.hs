@@ -64,7 +64,7 @@ renameDef (FnDef typ id args blk) = do
 
   where
     renameArg :: Arg -> Rename Arg
-    renameArg (Argument typ id) = Argument typ <$> bindStepAlpha id
+    renameArg (Argument typ id) = Argument typ <$> newBindStepAlpha id
 
 renameBlk :: Blk -> Rename Blk
 renameBlk (Block stmts) = Block <$> mapM renameStmt stmts
@@ -80,13 +80,13 @@ renameStmt = \case
   Decl typ items -> Decl typ <$> mapM renameItem items
     where
       renameItem :: Item -> Rename Item
-      renameItem (NoInit id) = NoInit <$> bindStepAlpha id
+      renameItem (NoInit id) = NoInit <$> newBindStepAlpha id
       renameItem (Init id expr) = do
         -- We rename the expression FIRST to properly handle cases like
         -- int x = x + 1
         -- where x was previously bound.
         aExpr <- renameExpr expr
-        aVar <- bindStepAlpha id
+        aVar <- newBindStepAlpha id
         return $ Init aVar aExpr
 
   Ass id expr -> do
@@ -135,8 +135,7 @@ renameExpr = \case
   ERel e1 op e2 -> binOpRename (flip ERel op) e1 e2
   EAnd e1 e2    -> binOpRename EAnd e1 e2
   EOr  e1 e2    -> binOpRename EOr e1 e2
-
-  AnnExp{} -> error annExpErr
+  AnnExp expr typ -> flip AnnExp typ <$> renameExpr expr
 
   -- Catch-all for cases which do not need renaming.
   expr -> return expr
@@ -241,7 +240,7 @@ nextAlpha = Ident <$> nextVar
     nextVar = (\ n -> varBase ++ show n) <$> getCounter
 
 {- | Return the next alpha-variable as an Ident, and increment the
-ariable counter to the next free number. This both returns a value
+variable counter to the next free number. This both returns a value
 AND modifies the state.
 -}
 stepAlpha :: Rename Ident
@@ -252,12 +251,8 @@ then increment the counter and return @v@.
 
 This returns a value, modifies the context stack, and modifies the counter.
 -}
-bindStepAlpha :: Ident -> Rename Ident
-bindStepAlpha id = do
-  aVar <- nextAlpha
-  bindVar (Original id) aVar
-  incrCounter
-  return aVar
+newBindStepAlpha :: Ident -> Rename Ident
+newBindStepAlpha = bindStepAlpha bindVar
 
 -- TODO: these two functions are very similar, refactor?
 {- | Like @bindStepAlpha@, but using @rebind@ instead of @bindVar@.
@@ -265,10 +260,14 @@ In other words, keep the original @id@ on the stac, but replace its
 topmost binding to a new unique variable.
 -}
 rebindStepAlpha :: Ident -> Rename Ident
-rebindStepAlpha id = do
-  aVar <- nextAlpha
-  rebind (Original id) aVar
-  incrCounter
+rebindStepAlpha = bindStepAlpha rebind
+
+-- Helper function for newBindStepAlpha and rebindStepAlpha, uses
+-- a given function to bind the @id@ parameter to an a-var.
+bindStepAlpha :: (Original -> Ident -> Rename a) -> Ident -> Rename Ident
+bindStepAlpha binderFun id = do
+  aVar <- stepAlpha
+  binderFun (Original id) aVar
   return aVar
 
 --
