@@ -14,6 +14,9 @@ if (true)
 ->
 stmt;
 
+Or
+!true -> false
+
 or is that optimization that is better left to the LLVM optimizer?
 -}
 
@@ -21,7 +24,6 @@ module Desugar
   ( desugar
   ) where
 
-import           Data.Either (either)
 
 import           Javalette.Abs
 
@@ -85,9 +87,8 @@ dsgStmt = \case
 
   Ret expr -> Right . Ret <$> dsgExpr expr
 
-  -- For conditionals where the expression is literal True or False,
+  -- For If/Else where the conditional is literal True or False,
   -- we can simplify greatly.
-
   If ELitTrue stmt -> Right <$> handleS stmt
   If ELitFalse _   -> Left  <$> pure []
   If expr stmt     -> Right <$> (If <$> dsgExpr expr <*> handleS stmt)
@@ -101,7 +102,7 @@ dsgStmt = \case
 
   SExp expr -> Right . SExp <$> dsgExpr expr
 
-  -- -- Catch-all
+  -- Catch-all
   stmt -> pure . Right $ stmt
 
   where
@@ -114,5 +115,9 @@ dsgStmt = \case
     handleS (BStmt blk) = BStmt <$> dsgBlk blk
     handleS stmt        = either (BStmt . Block) id <$> dsgStmt stmt
 
+-- TODO: Determine if expressions like !true should be simplified
+-- to false, or if this is inappropriate for desugaring.
+-- Also, determine if -n should be rewritten to n * (-1); is it
+-- an improvement?
 dsgExpr :: Expr -> Desugar Expr
-dsgExpr = undefined
+dsgExpr = pure
