@@ -2,12 +2,15 @@
 
 module Main where
 
+import qualified GHC.Stack as Stack
+
 import           System.Environment (getArgs)
 import           System.Exit (exitFailure, exitSuccess)
 import           System.IO (getContents, hPrint, hPutStrLn, stderr, stdin)
 
 import qualified AlphaRename
 import qualified CodeGenerator
+import qualified Desugar
 import qualified Errors
 import qualified PrettyPrinter
 import qualified TypeChecker
@@ -26,20 +29,42 @@ run code = do
 
   -- Type check. We perform type checking before desugaring and
   -- other preprocessing, as we want errors to be as helpful as
-  -- possible. In the future, it might be a good idea to have
-  -- multiple type checking phases. For example, it would be
-  -- ncie to have a type checking after preprocessing to ensure
-  -- that we have not broken the code by desugaring or alpha-renaming.
-  annotatedAst <- TypeChecker.typeCheck ast
+  -- possible. However, we perform type checking twice; once
+  -- to throw user errors, and then one later to annotate and
+  -- to ensure that other preprocessing has not introduced errors.
+  TypeChecker.typeCheck ast
 
-  -- Alpha-rename
-  return $ AlphaRename.alphaRename annotatedAst
+  -- Alpha-rename. Note that we can work under the assumption that
+  -- we do not have type errors due to the previous type check.
+  let alphaRenamedAst = AlphaRename.alphaRename ast
+
+  -- Desugar; assumes that alpha-renaming has been performed.
+  let desugaredAst = Desugar.desugar alphaRenamedAst
+
+  -- Type check again and annotate. A type error here indeicates
+  -- a bug in the compiler, not a user error.
+  let checkedAst2 = either compilerErr id (TypeChecker.typeCheck desugaredAst)
+
+  return checkedAst2
 
   where
     toEither :: Err Prog -> Either Errors.Error Prog
     toEither = \case
       Ok ast     -> Right ast
       Bad errMsg -> Left $ Errors.Error errMsg
+
+    compilerErr :: Stack.HasCallStack => Errors.Error -> a
+    compilerErr err = error $ mconcat
+      [ ">>\n"
+      , ">> An error has occurred in the compiler preprocessing\n"
+      , ">> phase; this is a compiler bug.\n"
+      , ">>\n"
+      , "Call stack:\n"
+      , Stack.prettyCallStack Stack.callStack
+      , "\n"
+      , "The Error thrown was:\n"
+      , show err
+      ]
 
 -- | Read input from a given file name, or from stdin
 -- if no file name is given.
