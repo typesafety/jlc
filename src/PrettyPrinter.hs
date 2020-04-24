@@ -1,18 +1,21 @@
 {-# LANGUAGE LambdaCase #-}
  
--- | Module for prettyprinting Javalette ASTs, mainly for
--- debugging purposes.
+{- | Module for prettyprinting Javalette ASTs, mainly for
+debugging purposes.
+-}
 
 module PrettyPrinter
   ( Pretty
   , prettyPrint
   ) where
 
+
 import           Data.Functor ((<&>))
 import           Data.List (intercalate)
 import qualified Control.Monad.Reader as R
 
 import           Javalette.Abs
+
 
 -- | Prettyprint something, using the given indentation.
 prettyPrint :: Pretty a => Int -> a -> String
@@ -68,13 +71,16 @@ instance Pretty Ident where
   pPrint (Ident s) = pure s
 
 instance Pretty Type where
+  pPrint (Fun t ts) = do
+    pT <- pPrint t
+    pTs <- intercalate "," <$> traverse pPrint ts
+    pure $ "FUNCTION(" ++ pTs ++ ":" ++ pT
   pPrint typ = pure $ case typ of
     Int -> "int"
     Double -> "double"
     Bool -> "boolean"
     Void -> "void"
-    Fun t ts -> "FUNTYPE"
-    Str -> "STRINGTYPE"
+    Str -> "STRING"
 
 instance Pretty Item where
   pPrint (NoInit id)    = pPrint id
@@ -91,7 +97,8 @@ instance Pretty Stmt where
       pItems <- intercalate ", " <$> mapM pPrint items
       pure $ mconcat [pTyp, " ", pItems, ";"]
 
-    Ass id expr -> (pPrint id <&> (++ " = ") <&> (++)) <*> pPrint expr
+    Ass id expr ->
+      (pPrint id <&> (++ " = ") <&> (++)) <*> pPrint expr <&> (++ ";")
 
     Incr id -> pPrint id <&> (++ "++;")
 
@@ -198,3 +205,8 @@ instance Pretty RelOp where
         GE  -> ">="
         EQU -> "=="
         NE  -> "!="
+
+instance Pretty a => Pretty [a] where
+  pPrint xs = do
+    ys <- traverse pPrint xs
+    pure . (++ "]") . ('[':) . intercalate "," $ ys

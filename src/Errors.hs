@@ -2,7 +2,10 @@
 
 module Errors where
 
-import Javalette.Abs
+
+import           Javalette.Abs
+import           PrettyPrinter (Pretty, prettyPrint)
+
 
 data Error
   -- When the type of the return value of a function does not match
@@ -68,67 +71,67 @@ data Error
 instance Show Error where
   show = \case
     ReturnError id expectedType actualType -> mconcat
-      [ "Function `", showId id, "` has return type:\n"
-      , "    ", showType expectedType, "\n"
+      [ "Function `", pp id, "` has return type:\n"
+      , "    ", pp expectedType, "\n"
       , "but incorrectly returns:\n"
-      , "    ", showType actualType
+      , "    ", pp actualType
       ]
 
     MissingReturnError id -> mconcat
-      [ "Function `", showId id, "`: missing reachable return statement"
+      [ "Function `", pp id, "`: missing reachable return statement"
       ]
 
     IncrTypeError id typ -> mconcat
-      [ "Incrementing (++) ", showId id, " requires type"
-      , "int, but instead got type: ", showType typ
+      [ "Incrementing (++) ", pp id, " requires type"
+      , "int, but instead got type: ", pp typ
       ]
 
     DecrTypeError id typ -> mconcat
-      [ "Decrementing (--) ", showId id, " requires type"
-      , "int, but instead got type: ", showType typ
+      [ "Decrementing (--) ", pp id, " requires type"
+      , "int, but instead got type: ", pp typ
       ]
 
     SymbolError id -> mconcat
-      [ "Could not resolve symbol: `", showId id, "`"
+      [ "Could not resolve symbol: `", pp id, "`"
       ]
 
     NumArgsError id expectedNum actualNum -> mconcat
-      [ "Function `", showId id, "` expected "
+      [ "Function `", pp id, "` expected "
       , show expectedNum, " arguments, but got ", show actualNum
       ]
 
     ExpError exp expectedTypes inferredType -> mconcat
       [ "Expected expression\n"
-      , "    ", show exp, "\n"
+      , "    ", pp exp, "\n"
       , "to have one of the following types:\n"
-      , "    ", show $ map showType expectedTypes, "\n"
+      , "    ", init . tail . pp $ expectedTypes, "\n"
       , "but instead the inferred type was:\n"
-      , "    ", showType inferredType
+      , "    ", pp inferredType
       ]
 
     DuplicateDeclError id -> mconcat
-      [ "Variable `", showId id, "` is already declared in"
+      [ "Variable `", pp id, "` is already declared in"
       , " the current context"
       ]
 
     DuplicateFunError id -> mconcat
-      [ "Duplicate top-level function identifier: `", showId id, "`"
+      [ "Duplicate top-level function identifier: `", pp id, "`"
       ]
 
     DuplicateParamError id -> mconcat
-      [ "Duplicate argument identifiers in function: `", showId id, "`"
+      [ "Duplicate argument identifiers in function: `", pp id, "`"
       ]
 
     VoidParamError id -> mconcat
-      [ "Function: `", showId id, "` has parameter(s) of type void"
+      [ "Function: `", pp id, "` has parameter(s) of type void"
       ]
 
     NonVoidSExpError exp inferredType -> mconcat
       [ "Statements consisting of single expressions must be of type void,"
       , " but the following expression:\n"
-      , "    ", show exp, "\n"
+      , "    ", pp exp, "\n"
       , "had type:\n"
-      , "    ", showType inferredType
+      , "    ", pp inferredType
       ]
 
     MainError str -> str
@@ -136,10 +139,5 @@ instance Show Error where
     Error str -> str
 
     where
-      showId :: Ident -> String
-      showId (Ident str) = str
-
-      showType :: Type -> String
-      showType = \case
-        Fun retType _argTypes -> "function of type " ++ show retType
-        t -> show t
+      pp :: Pretty a => a -> String
+      pp = prettyPrint 4
