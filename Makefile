@@ -8,10 +8,8 @@ prep:
 	stack install alex
 	stack install happy
 
-build: grammar
+jlc: clean
 	stack init --force
-
-jlc: clean build
 	stack build --local-bin-path="./" --copy-bins
 
 grammar:
@@ -22,6 +20,9 @@ submissionA:
 
 clean:
 	-rm ./jlc
-	-rm -r $(SRCDIR)/Javalette/
+	-rm -r $(SRCDIR)/Javalette/Doc.txt
+	-rm -r $(SRCDIR)/Javalette/Print.hs
+	-rm -r $(SRCDIR)/Javalette/Skel.hs
+	-rm -r $(SRCDIR)/Javalette/Test.hs
 	-rm -r .stack-work/
 	-rm stack.*
