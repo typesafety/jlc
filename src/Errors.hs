@@ -1,7 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Errors where
+module Errors
+  ( Error (..)
+  , compilerErrMsg
+  )
+  where
 
+import qualified GHC.Stack as Stack
 
 import           Javalette.Abs
 import           PrettyPrinter (Pretty, prettyPrint)
@@ -141,3 +146,13 @@ instance Show Error where
     where
       pp :: Pretty a => a -> String
       pp = prettyPrint 4
+
+compilerErrMsg :: Stack.HasCallStack => String
+compilerErrMsg = mconcat
+  [ ">>\n"
+  , ">> An error has occurred in the compiler;\n"
+  , ">> this is a compiler bug.\n"
+  , ">>\n"
+  , "Call stack:\n"
+  , Stack.prettyCallStack Stack.callStack
+  ]

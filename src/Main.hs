@@ -12,6 +12,7 @@ import qualified AlphaRename
 import qualified CodeGenerator
 import qualified Desugar
 import qualified Errors
+import qualified OptimizeAST
 import qualified PrettyPrinter
 import qualified TypeChecker
 
@@ -41,9 +42,12 @@ run code = do
   -- Desugar; assumes that alpha-renaming has been performed.
   let desugaredAst = Desugar.desugar alphaRenamedAst
 
+  -- Optimize the AST simplifiying and rewriting some constructs.
+  let optimizedAst = OptimizeAST.optimizeAst desugaredAst
+
   -- Type check again and annotate. A type error here indeicates
   -- a bug in the compiler, not a user error.
-  let checkedAst2 = either compilerErr id (TypeChecker.typeCheck desugaredAst)
+  let checkedAst2 = either compilerErr id (TypeChecker.typeCheck optimizedAst)
 
   return checkedAst2
 
@@ -54,14 +58,8 @@ run code = do
       Bad errMsg -> Left $ Errors.Error errMsg
 
     compilerErr :: Stack.HasCallStack => Errors.Error -> a
-    compilerErr err = error $ mconcat
-      [ ">>\n"
-      , ">> An error has occurred in the compiler preprocessing\n"
-      , ">> phase; this is a compiler bug.\n"
-      , ">>\n"
-      , "Call stack:\n"
-      , Stack.prettyCallStack Stack.callStack
-      , "\n"
+    compilerErr err = error $ Errors.compilerErrMsg ++ mconcat
+      [ "\n"
       , "The Error thrown was:\n"
       , show err
       ]

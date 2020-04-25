@@ -7,17 +7,6 @@ useful in future compilation steps.
 
 Desugaring should be run _after_ alpha-renaming. Some procedures
 will assume that all variables are unique.
-
-TODO: Should this desugaring module actually perform optimizations like
-if (true)
-  stmt;
-->
-stmt;
-
-Or
-!true -> false
-
-or is that optimization that is better left to the LLVM optimizer?
 -}
 
 module Desugar
@@ -87,14 +76,8 @@ dsgStmt = \case
 
   Ret expr -> Right . Ret <$> dsgExpr expr
 
-  -- For If/Else where the conditional is literal True or False,
-  -- we can simplify greatly.
-  If ELitTrue stmt -> Right <$> handleS stmt
-  If ELitFalse _   -> Left  <$> pure []
   If expr stmt     -> Right <$> (If <$> dsgExpr expr <*> handleS stmt)
 
-  IfElse ELitTrue s1 _  -> Right <$> handleS s1
-  IfElse ELitFalse _ s2 -> Right <$> handleS s2
   IfElse expr s1 s2     -> Right
     <$> (IfElse <$> dsgExpr expr <*> handleS s1 <*> handleS s2)
 
@@ -115,9 +98,6 @@ dsgStmt = \case
     handleS (BStmt blk) = BStmt <$> dsgBlk blk
     handleS stmt        = either (BStmt . Block) id <$> dsgStmt stmt
 
--- TODO: Determine if expressions like !true should be simplified
--- to false, or if this is inappropriate for desugaring.
--- Also, determine if -n should be rewritten to n * (-1); is it
--- an improvement?
+-- | Expression desugaring can be added here as needed.
 dsgExpr :: Expr -> Desugar Expr
 dsgExpr = pure

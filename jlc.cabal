@@ -27,6 +27,7 @@ executable jlc
                      , Desugar
                      , Errors
                      , LLVM
+                     , OptimizeAST
                      , PrettyPrinter
                      , TypeChecker
   -- other-extensions:
