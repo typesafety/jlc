@@ -12,14 +12,13 @@ tell which constructs still exist after preprocessing.
 -}
 
 module Frontend.OptimizeAST
-  ( optimizeAst
-  ) where
+       ( optimizeAst
+       ) where
 
+import Frontend.Errors (compilerErrMsg)
+import Javalette.Abs
 
 import qualified GHC.Stack as Stack
-
-import           Frontend.Errors (compilerErrMsg)
-import           Javalette.Abs
 
 
 newtype Optimize a = Optimize a

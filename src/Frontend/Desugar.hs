@@ -10,11 +10,10 @@ will assume that all variables are unique.
 -}
 
 module Frontend.Desugar
-  ( desugar
-  ) where
+       ( desugar
+       ) where
 
-
-import           Javalette.Abs
+import Javalette.Abs
 
 
 newtype Desugar a = Desugar a

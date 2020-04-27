@@ -1,19 +1,21 @@
 {-# LANGUAGE LambdaCase #-}
 
 module Frontend.TypeChecker
-  ( typeCheck
-  ) where
+       ( typeCheck
+       ) where
 
-import           Control.Applicative ((<|>))
-import           Control.Monad (unless, when, zipWithM)
+import Control.Applicative ((<|>))
+import Control.Monad (unless, when, zipWithM)
+import Data.Maybe (fromMaybe)
+
+import Frontend.Errors (Error (..))
+import Javalette.Abs
+
 import qualified Control.Monad.Except as E
 import qualified Control.Monad.Reader as R
 import qualified Control.Monad.State as ST
 import qualified Data.Map.Strict as M
-import           Data.Maybe (fromMaybe)
 
-import           Frontend.Errors (Error (..))
-import           Javalette.Abs
 
 --
 -- * Type synonyms and related functions

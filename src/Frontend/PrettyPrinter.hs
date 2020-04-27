@@ -5,16 +5,16 @@ debugging purposes.
 -}
 
 module Frontend.PrettyPrinter
-  ( Pretty
-  , prettyPrint
-  ) where
+       ( Pretty
+       , prettyPrint
+       ) where
 
+import Data.Functor ((<&>))
+import Data.List (intercalate)
 
-import           Data.Functor ((<&>))
-import           Data.List (intercalate)
+import Javalette.Abs
+
 import qualified Control.Monad.Reader as R
-
-import           Javalette.Abs
 
 
 -- | Prettyprint something, using the given indentation.

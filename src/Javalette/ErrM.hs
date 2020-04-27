@@ -1,15 +1,20 @@
 -- BNF Converter: Error Monad
--- Copyright (C) 2004  Author:  Aarne Ranta
+-- Copyright (C) 2004  Author: Aarne Ranta
+
+{- | The Error monad: like Maybe type with error msgs
+-}
 
 -- This file comes with NO WARRANTY and may be used FOR ANY PURPOSE.
+
 module Javalette.ErrM where
 
--- the Error monad: like Maybe type with error msgs
+import Control.Monad (MonadPlus (..), liftM)
+import Control.Applicative (Applicative (..), Alternative (..))
 
-import Control.Monad (MonadPlus(..), liftM)
-import Control.Applicative (Applicative(..), Alternative(..))
 
-data Err a = Ok a | Bad String
+data Err a
+  = Ok a
+  | Bad String
   deriving (Read, Show, Eq, Ord)
 
 instance Monad Err where
@@ -20,9 +25,8 @@ instance Monad Err where
 
 instance Applicative Err where
   pure = Ok
-  (Bad s) <*> _ = Bad s
-  (Ok f) <*> o  = liftM f o
-
+  Bad s <*> _ = Bad s
+  Ok f  <*> o = fmap f o
 
 instance Functor Err where
   fmap = liftM

@@ -11,19 +11,18 @@ variable names as IDs (id), and the alpha-renamed variants as VARIABLEs
 -}
 
 module Frontend.AlphaRename
-  ( alphaRename
-  ) where
+       ( alphaRename
+       ) where
 
+import Control.Applicative ((<|>))
+import Data.Bifunctor (first, second, bimap)
+import Data.Maybe (fromMaybe)
 
-import           Control.Applicative ((<|>))
-import           Data.Bifunctor (first, second, bimap)
-import           Data.Maybe (fromMaybe)
+import Javalette.Abs
 
 import qualified Control.Monad.State.Strict as ST
 import qualified Data.Map.Strict as M
 import qualified GHC.Stack as Stack
-
-import           Javalette.Abs
 
 
 newtype Original = Original Ident
