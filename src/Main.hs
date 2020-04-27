@@ -2,23 +2,23 @@
 
 module Main where
 
+import System.Environment (getArgs)
+import System.Exit (exitFailure, exitSuccess)
+import System.IO (getContents, hPrint, hPutStrLn, stderr, stdin)
+
+import Javalette.Abs (Prog)
+import Javalette.ErrM (Err (Ok, Bad))
+import Javalette.Par (pProg, myLexer)
+
 import qualified GHC.Stack as Stack
 
-import           System.Environment (getArgs)
-import           System.Exit (exitFailure, exitSuccess)
-import           System.IO (getContents, hPrint, hPutStrLn, stderr, stdin)
+import qualified Frontend.AlphaRename as AlphaRename
+import qualified Frontend.Desugar as Desugar
+import qualified Frontend.Errors as Errors
+import qualified Frontend.OptimizeAST as OptimizeAST
+import qualified Frontend.PrettyPrinter as PrettyPrinter
+import qualified Frontend.TypeChecker as TypeChecker
 
-import qualified AlphaRename
-import qualified CodeGenerator
-import qualified Desugar
-import qualified Errors
-import qualified OptimizeAST
-import qualified PrettyPrinter
-import qualified TypeChecker
-
-import           Javalette.Abs (Prog)
-import           Javalette.ErrM (Err (Ok, Bad))
-import           Javalette.Par (pProg, myLexer)
 
 run :: String -> Either Errors.Error Prog
 run code = do

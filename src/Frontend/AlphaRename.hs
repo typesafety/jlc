@@ -10,7 +10,7 @@ variable names as IDs (id), and the alpha-renamed variants as VARIABLEs
 (var)
 -}
 
-module AlphaRename
+module Frontend.AlphaRename
   ( alphaRename
   ) where
 

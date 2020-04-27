@@ -18,18 +18,20 @@ build-type:          Simple
 
 executable jlc
   main-is:             Main.hs
-  other-modules:       Javalette.Abs
+  other-modules:
+                       Frontend.AlphaRename
+                     , Frontend.Desugar
+                     , Frontend.Errors
+                     , Frontend.OptimizeAST
+                     , Frontend.PrettyPrinter
+                     , Frontend.TypeChecker
+                     , Javalette.Abs
                      , Javalette.ErrM
                      , Javalette.Lex
                      , Javalette.Par
-                     , AlphaRename
-                     , CodeGenerator
-                     , Desugar
-                     , Errors
-                     , LLVM
-                     , OptimizeAST
-                     , PrettyPrinter
-                     , TypeChecker
+                     , LLVM.ADT
+                     , LLVM.AstGen
+                     , LLVM.CodeGenerator
   -- other-extensions:
   build-depends:       base >=4.12 && <4.13
                      , array

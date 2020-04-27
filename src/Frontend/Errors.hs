@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Errors
+module Frontend.Errors
   ( Error (..)
   , compilerErrMsg
   )
@@ -9,7 +9,7 @@ module Errors
 import qualified GHC.Stack as Stack
 
 import           Javalette.Abs
-import           PrettyPrinter (Pretty, prettyPrint)
+import           Frontend.PrettyPrinter (Pretty, prettyPrint)
 
 
 data Error

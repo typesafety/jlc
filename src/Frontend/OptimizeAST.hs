@@ -11,14 +11,14 @@ desugared and optimized program so that the types and their constructors
 tell which constructs still exist after preprocessing.
 -}
 
-module OptimizeAST
+module Frontend.OptimizeAST
   ( optimizeAst
   ) where
 
 
 import qualified GHC.Stack as Stack
 
-import           Errors (compilerErrMsg)
+import           Frontend.Errors (compilerErrMsg)
 import           Javalette.Abs
 
 

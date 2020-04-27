@@ -9,7 +9,7 @@ Desugaring should be run _after_ alpha-renaming. Some procedures
 will assume that all variables are unique.
 -}
 
-module Desugar
+module Frontend.Desugar
   ( desugar
   ) where
 

@@ -1,7 +1,7 @@
--- | Abstract data type for 
+{- | Abstract data type for LLVM
+-}
 
-module LLVM where
-
+module LLVM.ADT where
 
 -- | ADT for an LLVM compilation unit (module).
 data LLVM = LLVM

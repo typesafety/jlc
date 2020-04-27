@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module TypeChecker
+module Frontend.TypeChecker
   ( typeCheck
   ) where
 
@@ -12,8 +12,8 @@ import qualified Control.Monad.State as ST
 import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe)
 
-import Errors (Error (..))
-import Javalette.Abs
+import           Frontend.Errors (Error (..))
+import           Javalette.Abs
 
 --
 -- * Type synonyms and related functions

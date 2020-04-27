@@ -4,7 +4,7 @@
 debugging purposes.
 -}
 
-module PrettyPrinter
+module Frontend.PrettyPrinter
   ( Pretty
   , prettyPrint
   ) where
