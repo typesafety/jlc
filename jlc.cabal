@@ -37,5 +37,6 @@ executable jlc
                      , array
                      , containers
                      , mtl
+                     , microlens-platform
   hs-source-dirs:      src/
   default-language:    Haskell2010

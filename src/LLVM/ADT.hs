@@ -13,6 +13,13 @@ data LLVM = LLVM
   }
   deriving (Eq, Show)
 
+instance Semigroup LLVM where
+  LLVM as1 bs1 cs1 ds1 <> LLVM as2 bs2 cs2 ds2 =
+    LLVM (as1 ++ as2) (bs1 ++ bs2) (cs1 ++ cs2) (ds1 ++ ds2)
+
+instance Monoid LLVM where
+  mempty = LLVM [] [] [] []
+
 -- * Function definitions
 
 data FunDecl = FunDecl

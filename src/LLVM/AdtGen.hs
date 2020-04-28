@@ -1,4 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase      #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {- | Module for converting an annotated Javalette AST to an
 LLVM AST. This is expected to run after type checking and
@@ -8,8 +9,11 @@ other preprocessing/optimizations.
 -- TODO: Explicit export list
 module LLVM.AdtGen where
 
-import qualified Control.Monad.State.Strict as ST
+import Lens.Micro.Platform
+
 import qualified Control.Monad.Reader as R
+import qualified Control.Monad.State.Strict as ST
+import qualified Control.Monad.Writer.Strict as W
 import qualified Data.Map.Strict as M
 
 import LLVM.ADT
@@ -17,10 +21,24 @@ import LLVM.ADT
 import qualified Javalette.Abs as J
 
 
-type GenADT a = R.ReaderT Signatures (ST.State Env) a
+type Graph = M.Map Label (Maybe Label)
 
 -- TODO: To be changed when I figure out what state we need.
-type Env = Graph
+{-| The environment:
+@envGraph@ - Points a label to the "next" label, or none if it is a
+function return.
+@envCount@ - Keeps track of local variable names (suffix).
+@envGlobal@ - Keeps track of global variable names (suffix).
+-}
+data Env = Env
+  { _envGraph :: Graph
+  , _envCount :: Int
+  , _envGlobalCount :: Int
+  }
+
+$(makeLenses ''Env)
+
+type Convert a = R.ReaderT Signatures (W.WriterT LLVM (ST.State Env)) a
 
 type Signatures = M.Map Ident FunDecl
 
@@ -28,13 +46,9 @@ type Signatures = M.Map Ident FunDecl
 to either another label (another BasicBlock), or Nothing, in which
 case it returns from the function.
 -}
-type Graph = M.Map Label (Maybe Label)
 
-runGenADT :: GenADT a -> a
-runGenADT genAdt = ST.evalState (R.runReaderT genAdt initSigs) initEnv
-
-initEnv :: Graph
-initEnv = M.empty
+initEnv :: Env
+initEnv = Env M.empty 0 0
 
 initSigs :: Signatures
 initSigs = M.fromList $ zip (map getId stdExtFunDefs) stdExtFunDefs
@@ -61,11 +75,15 @@ stdExtFunDefs =
 -- * LLVM Generation.
 --
 
-genLlvm :: J.Prog -> LLVM
-genLlvm = runGenADT . genProg
+convert :: J.Prog -> LLVM
+convert p
+  = ST.evalState (W.execWriterT $ R.runReaderT (convProg p) initSigs) initEnv
 
-genProg :: J.Prog -> GenADT LLVM
-genProg (J.Program topDefs) = undefined
+convProg :: J.Prog -> Convert ()
+convProg (J.Program topDefs) = undefined
+
+-- convTopDefs :: Convert LLVM
+-- convTopDefs (topDefs : ts) = 
 
 --
 -- * Helper function for LLVM ADT constructors.
@@ -86,6 +104,22 @@ iInt = TNBitInt
 -- | Shorthand for the very common i32 type.
 i32 :: Type
 i32 = iInt 32
+
+--
+-- * Environment-related helper functions.
+--
+
+setCount :: Int -> Convert ()
+setCount n = ST.modify $ set envCount n
+
+incrCount :: Convert ()
+incrCount = ST.modify $ envCount +~ 1
+
+{- | Return the next unique variable name as an Ident, then
+increment the counter.
+-}
+nextVar :: Convert Ident
+nextVar = localId . show <$> ST.gets (view envCount)
 
 --
 -- * Various helper functions.
