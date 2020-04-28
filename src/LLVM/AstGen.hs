@@ -73,3 +73,14 @@ iInt = TNBitInt
 -- | Shorthand for the very common i32 type.
 i32 :: Type
 i32 = iInt 32
+
+--
+-- * Various helper functions.
+--
+
+-- | Add a global string to the AST.
+addGlobalStr :: Ident -> String -> LLVM -> LLVM
+addGlobalStr id s llvm = llvm { llvmVarDefs = v : llvmVarDefs llvm }
+  where
+    v :: VarDef
+    v = VarDef id (TArray (length s) (iInt 8)) (SVal $ LString s)

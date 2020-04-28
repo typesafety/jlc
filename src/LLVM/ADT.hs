@@ -5,12 +5,13 @@ module LLVM.ADT where
 
 -- | ADT for an LLVM compilation unit (module).
 data LLVM = LLVM
-  [TypeDef]  -- ^ Type definitions
-  [VarDef]   -- ^ Global variable definitions
-  [FunDef]   -- ^ Local (to the module) function definitions
-  [FunDecl]  -- ^ External function declarations
+  { llvmTypeDefs :: [TypeDef]  -- ^ Type definitions
+  , llvmVarDefs :: [VarDef]   -- ^ Global variable definitions
+  , llvmFunDefs :: [FunDef]   -- ^ Local (to the module) function definitions
+  , llvmFunDecls :: [FunDecl]  -- ^ External function declarations
+-- External global variables are not implemented.
+  }
   deriving (Eq, Show)
-             -- External global variables are not implemented.
 
 -- * Function definitions
 
@@ -35,11 +36,12 @@ data Type
 
   -- An int of Int bits, i.e. the parameter indicates the size the integer.
   | TNBitInt Int
-
   | TLabel Label
   | TFun Type [Type]
   | TPointer Type
   | TStruct [Type]
+
+  -- An array of Int length, containing elements of type Type.
   | TArray Int Type
   | Void
   | Float
@@ -143,7 +145,7 @@ data Lit
   = LInt Int
   | LFloat Float
   | LNull
-  | LString
+  | LString String
   deriving (Eq, Show)
 
 data VarDef = VarDef Ident Type Source
