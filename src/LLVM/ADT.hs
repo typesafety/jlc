@@ -9,6 +9,7 @@ data LLVM = LLVM
   [VarDef]   -- ^ Global variable definitions
   [FunDef]   -- ^ Local (to the module) function definitions
   [FunDecl]  -- ^ External function declarations
+  deriving (Eq, Show)
              -- External global variables are not implemented.
 
 -- * Function definitions
@@ -17,35 +18,59 @@ data FunDecl = FunDecl
   Type   -- ^ Return type
   Ident  -- ^ Function Name
   [Arg]  -- ^ Parameters
+  deriving (Eq, Show)
 
 data FunDef = FunDef
   Type          -- ^ Return type
   Ident         -- ^ Function name
   [Arg]         -- ^ Parameters
   [BasicBlock]  -- ^ Function body
+  deriving (Eq, Show)
+
+data Ident = Ident Scope String
+  deriving (Eq, Show)
+
+data Type
+  = TName Ident
+
+  -- An int of Int bits, i.e. the parameter indicates the size the integer.
+  | TNBitInt Int
+
+  | TLabel Label
+  | TFun Type [Type]
+  | TPointer Type
+  | TStruct [Type]
+  | TArray Int Type
+  | Void
+  | Float
+  | Double
+  deriving (Eq, Show)
 
 data LinkageType
   = Private
   | Internal
+  deriving (Eq, Show)
 
 data Attribute
   = ReadNone
   | ReadOnly
   | NounWind
+  deriving (Eq, Show)
 
 data CallingConv
   = CCC
   | FastCC
+  deriving (Eq, Show)
 
 data BasicBlock = BasicBlock Label [Instr]
-
--- * Instructions and different operations
+  deriving (Eq, Show)
 
 data Instr
   = IArith Ident ArithOp Type Source Source
   | ITerm TermOp
   | IMem MemOp
   | IOther OtherOp
+  deriving (Eq, Show)
 
 data ArithOp
   -- For integers
@@ -59,21 +84,25 @@ data ArithOp
   | Fsub
   | Fmul
   | Fdiv
+  deriving (Eq, Show)
 
 data TermOp
   = Ret
   | Br
+  deriving (Eq, Show)
 
 data MemOp
   = Alloca Type
   | Load Ident Type Ident
   | Store Type Source Type Ident
   | GetElementPtr Ident Type [Type]
+  deriving (Eq, Show)
 
 data OtherOp
   = Icmp ICond Type Source Source
   | Fcmp FCond Type Source Source
   | Call (Maybe Ident) Type Ident [Arg]
+  deriving (Eq, Show)
 
 data FCond
   = FC_OEQ
@@ -92,6 +121,7 @@ data FCond
   | FC_UNO
   | FC_TRUE
   | FC_FALSE
+  deriving (Eq, Show)
 
 data ICond
   = IC_EQ
@@ -104,41 +134,33 @@ data ICond
   | IC_SGE
   | IC_SLT
   | IC_SLE
-
--- * asdf
+  deriving (Eq, Show)
 
 data Arg = Arg Type Ident
+  deriving (Eq, Show)
 
 data Lit
   = LInt Int
   | LFloat Float
   | LNull
   | LString
+  deriving (Eq, Show)
 
 data VarDef = VarDef Ident Type Source
+  deriving (Eq, Show)
 
 data Source
   = SIdent Ident
   | SVal Lit
+  deriving (Eq, Show)
 
 data TypeDef = TypeDef Ident Type
-
-data Type
-  = TName Ident
-  | TNBitInt Int
-  | TLabel Label
-  | TFun Type [Type]
-  | TPointer Type
-  | TStruct [Type]
-  | TArray Int Type
-  | Void
-  | Float
-  | Double
+  deriving (Eq, Show)
 
 data Scope
   = Global
   | Local
-
-data Ident = Ident Scope String
+  deriving (Eq, Show)
 
 newtype Label = Label Ident
+  deriving (Eq, Show)
