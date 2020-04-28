@@ -6,28 +6,41 @@ other preprocessing/optimizations.
 -}
 
 -- TODO: Explicit export list
-module LLVM.AstGen where
+module LLVM.AdtGen where
+
+import qualified Control.Monad.State.Strict as ST
+import qualified Control.Monad.Reader as R
+import qualified Data.Map.Strict as M
 
 import LLVM.ADT
 
 import qualified Javalette.Abs as J
 
 
-newtype ToADT a = ToADT a
+type GenADT a = R.ReaderT Signatures (ST.State Env) a
 
-runToADT :: ToADT a -> a
-runToADT (ToADT a) = a
+-- TODO: To be changed when I figure out what state we need.
+type Env = Graph
 
-instance Functor ToADT where
-  fmap f (ToADT a) = ToADT (f a)
+type Signatures = M.Map Ident FunDecl
 
-instance Applicative ToADT where
-  pure      = ToADT
-  ff <*> aa = fmap (runToADT ff) aa
+{- | Every BasicBlock in a function definition has a label, and points
+to either another label (another BasicBlock), or Nothing, in which
+case it returns from the function.
+-}
+type Graph = M.Map Label (Maybe Label)
 
-instance Monad ToADT where
-  return  = ToADT
-  m >>= f = f . runToADT $ m
+runGenADT :: GenADT a -> a
+runGenADT genAdt = ST.evalState (R.runReaderT genAdt initSigs) initEnv
+
+initEnv :: Graph
+initEnv = M.empty
+
+initSigs :: Signatures
+initSigs = M.fromList $ zip (map getId stdExtFunDefs) stdExtFunDefs
+  where
+    getId :: FunDecl -> Ident
+    getId (FunDecl _ id _) = id
 
 --
 -- * "Boilerplate"-like content to include in .ll source files.
@@ -49,9 +62,9 @@ stdExtFunDefs =
 --
 
 genLlvm :: J.Prog -> LLVM
-genLlvm = runToADT . genProg
+genLlvm = runGenADT . genProg
 
-genProg :: J.Prog -> ToADT LLVM
+genProg :: J.Prog -> GenADT LLVM
 genProg (J.Program topDefs) = undefined
 
 --

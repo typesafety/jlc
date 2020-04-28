@@ -6,8 +6,8 @@ module LLVM.ADT where
 -- | ADT for an LLVM compilation unit (module).
 data LLVM = LLVM
   { llvmTypeDefs :: [TypeDef]  -- ^ Type definitions
-  , llvmVarDefs :: [VarDef]   -- ^ Global variable definitions
-  , llvmFunDefs :: [FunDef]   -- ^ Local (to the module) function definitions
+  , llvmVarDefs  :: [VarDef]   -- ^ Global variable definitions
+  , llvmFunDefs  :: [FunDef]   -- ^ Local (to the module) function definitions
   , llvmFunDecls :: [FunDecl]  -- ^ External function declarations
 -- External global variables are not implemented.
   }
@@ -29,7 +29,7 @@ data FunDef = FunDef
   deriving (Eq, Show)
 
 data Ident = Ident Scope String
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data Type
   = TName Ident
@@ -162,7 +162,7 @@ data TypeDef = TypeDef Ident Type
 data Scope
   = Global
   | Local
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 newtype Label = Label Ident
   deriving (Eq, Show)
