@@ -71,11 +71,16 @@ data CallingConv
   | FastCC
   deriving (Eq, Show)
 
-data BasicBlock = BasicBlock Label [Instr]
+data BasicBlock = BasicBlock Label [Instruction]
   deriving (Eq, Show)
 
-data Instr
-  = IArith Ident ArithOp Type Source Source
+data Instruction
+  = IAss Ident InstrGroup
+  | INoAss InstrGroup
+  deriving (Eq, Show)
+
+data InstrGroup
+  = IArith ArithOp Type Source Source
   | ITerm TermOp
   | IMem MemOp
   | IOther OtherOp
@@ -102,9 +107,9 @@ data TermOp
 
 data MemOp
   = Alloca Type
-  | Load Ident Type Ident
+  | Load Type Ident
   | Store Type Source Type Ident
-  | GetElementPtr Ident Type [Type]
+  | GetElementPtr Type [Type]
   deriving (Eq, Show)
 
 data OtherOp
