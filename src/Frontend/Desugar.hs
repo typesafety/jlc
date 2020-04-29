@@ -61,11 +61,16 @@ dsgStmt = \case
   -- Place all declarations on separate lines. More verbose but simpler.
   -- (But now we get singleton item lists, which looks a bit ugly,
   -- maybe that can be addressed somehow?)
-  Decl typ items -> do
-    let d_Items = traverse dsgItem items
-    if length items == 1
-      then Right . Decl typ <$> d_Items
-      else Left . map (Decl typ . (: [])) <$> d_Items
+  Decl typ items -> Left . concat <$> mapM (dsgDecl typ) items
+    where
+      -- Convert declarations into separate declarations and
+      -- initializations when applicable.
+      dsgDecl :: Type -> Item -> Desugar [Stmt]
+      dsgDecl t i = case i of
+        NoInit id    -> pure [Decl t [i]]
+        Init id expr -> do
+          dExpr <- dsgExpr expr
+          return [Decl t [NoInit id], Ass id dExpr]
 
   Ass id expr -> Right . Ass id <$> dsgExpr expr
 
