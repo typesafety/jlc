@@ -38,6 +38,11 @@ data FunDef = FunDef
 data Ident = Ident Scope String
   deriving (Eq, Ord, Show)
 
+data Scope
+  = Global
+  | Local
+  deriving (Eq, Ord, Show)
+
 data Type
   = TName Ident
 
@@ -171,11 +176,6 @@ data Source
 
 data TypeDef = TypeDef Ident Type
   deriving (Eq, Show)
-
-data Scope
-  = Global
-  | Local
-  deriving (Eq, Ord, Show)
 
 newtype Label = Label String
   deriving (Eq, Show)
