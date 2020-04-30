@@ -23,6 +23,29 @@ import LLVM.ADT
 
 import qualified Javalette.Abs as J
 
+newtype OriginalId = OriginalId Ident
+
+newtype NewId = NewId Ident
+
+type Context = M.Map OriginalId NewId
+
+{-| The environment:
+@envVarCount@ - Counter for local variable names (suffix).
+@envGlobal@ - Counter for global variable names (suffix).
+@envLabel@ - Counter for label names (suffix).
+@envCxt@ - Keeps track of variable names if they've been renamed.
+-}
+data Env = Env
+  { _envGlobalCount :: Int
+  , _envVarCount :: Int
+  , _envLabelCount :: Int
+  , _envCxt :: Context
+  }
+
+$(makeLenses ''Env)
+
+initEnv :: Env
+initEnv = Env 0 0 0 M.empty
 
 {- | Javalette is first translated to this intermediate type, which will
 then be assembled into actual basic blocks. This intermediate type
@@ -32,39 +55,12 @@ data Translated
   = TrI Instruction
   | TrL Label
 
-type Graph = M.Map Label (Maybe Label)
-
-type Context = M.Map Ident Source
-
-{-| The environment:
-@envGraph@ - Points a label to the "next" label, or none if it is a
-function return.
-@envVarCount@ - Keeps track of local variable names (suffix).
-@envGlobal@ - Keeps track of global variable names (suffix).
--}
-data Env = Env
-  { _envGraph :: Graph
-  , _envGlobalCount :: Int
-  , _envVarCount :: Int
-  , _envLabelCount :: Int
-  }
-
-$(makeLenses ''Env)
-
 {- | The monad stack keeps track of function signatures and relevant
 state when traversing the Javalette AST.
 -}
 type Convert a = R.ReaderT (Signatures, Maybe Type) (ST.State Env) a
 
 type Signatures = M.Map Ident FunDecl
-
-{- | Every BasicBlock in a function definition has a label, and points
-to either another label (another BasicBlock), or Nothing, in which
-case it returns from the function.
--}
-
-initEnv :: Env
-initEnv = Env M.empty 0 0 0
 
 initSigs :: Signatures
 initSigs = M.fromList $ zip (map getId stdExtFunDefs) stdExtFunDefs
@@ -124,22 +120,26 @@ convBody stmts = do
   undefined
 
 
-genInstrs :: J.Stmt -> Convert (Either [BasicBlock] [Instruction])
-genInstrs = \case
-  J.Empty -> pure $ Right []
+{- | Convert a JL statment into a list of LLVM instructions and labels.
+The ordering of the list conserves the semantics of the input program.
+-}
+convStmt :: J.Stmt -> Convert [Translated]
+convStmt = \case
+  J.Empty -> pure []
 
   -- Because we have done alpha-renaming, we don't need to worry
   -- about scoping when encountering variable declarations. We can
   -- assume that variables are only declared once, thus there will
   -- be no ambiguities when referencing variables elsewhere.
-  J.BStmt (J.Block stmts) ->
-    error "TODO: Flatten blocks before this, and we can ignore this case"
+  J.BStmt (J.Block jStmts) -> concat <$> mapM convStmt jStmts
 
   -- Due to the preprocessing desugaring step, we can expect
   -- there to be only a single Item per declaration statement,
   -- and no combined declarations and initializations.
-  J.Decl jType [J.NoInit jId] ->
-    pure $ Right [IAss (transId Local jId) $ IMem $ Alloca (transType jType)]
+  J.Decl jType [J.NoInit jId] -> do
+    let lVar = transId Local jId
+    let lType = transType jType
+    pure [TrI $ IAss lVar (IMem $ Alloca lType)]
 
   J.Ass jId jExpr -> do
     -- Translating the JL expression to LLVM may use multiple instructions.
@@ -147,7 +147,8 @@ genInstrs = \case
     -- The final LLVM instruction assigns the value of the expression
     -- to some variable; we want to assign this to the given Id.
     let (inits, [lastInstr]) = splitLast instrs
-    pure . Right $ inits ++ [replaceAss (transId Local jId) lastInstr]
+    let lId = transId Local jId
+    pure . map TrI $ inits ++ [replaceAss lId lastInstr]
 
     where
       replaceAss :: Ident -> Instruction -> Instruction
@@ -156,18 +157,25 @@ genInstrs = \case
   J.Ret jExpr -> do
     instrs <- convExpr jExpr
     let id = lastBinding instrs
+    -- Get the return type of our current fucntion.
     retType <- R.asks (fromJust . snd)
-    pure . Right $ instrs ++ [INoAss $ ITerm $ Ret retType (SIdent id)]
+    pure . map TrI $ instrs ++ [INoAss $ ITerm $ Ret retType (SIdent id)]
 
-  J.VRet -> pure . Right $ [INoAss $ ITerm VRet]
+  J.VRet -> pure [TrI $ INoAss $ ITerm VRet]
 
-  J.SExp jExpr -> Right <$> convExpr jExpr
+  J.SExp jExpr -> map TrI <$> convExpr jExpr
 
-  J.If jExpr jStmt -> do
-    condInstrs <- convExpr jExpr
-    -- nnnn
-    -- let br
-    undefined
+  -- J.If jExpr jStmt -> do
+  --   condInstrs <- convExpr jExpr
+  --   -- let cmpInstr = 
+
+
+  --   ifLabel <- nextLabel
+  --   elseLabel <- nextLabel
+  --   body <- convStmt jStmt
+
+  --   -- let br
+  --   undefined
 
   -- IfElse Expr Stmt Stmt
   -- While Expr Stmt
