@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase      #-}
+{-# LANGUAGE RankNTypes      #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 {- | Module for converting an annotated Javalette AST to an
@@ -22,6 +23,15 @@ import LLVM.ADT
 
 import qualified Javalette.Abs as J
 
+
+{- | Javalette is first translated to this intermediate type, which will
+then be assembled into actual basic blocks. This intermediate type
+is easier to generate while traversing the Javalette AST.
+-}
+data Translated
+  = TrI Instruction
+  | TrL Label
+
 type Graph = M.Map Label (Maybe Label)
 
 type Context = M.Map Ident Source
@@ -29,14 +39,14 @@ type Context = M.Map Ident Source
 {-| The environment:
 @envGraph@ - Points a label to the "next" label, or none if it is a
 function return.
-@envCount@ - Keeps track of local variable names (suffix).
+@envVarCount@ - Keeps track of local variable names (suffix).
 @envGlobal@ - Keeps track of global variable names (suffix).
 -}
 data Env = Env
   { _envGraph :: Graph
-  , _envCount :: Int
   , _envGlobalCount :: Int
-  , _envCxts :: [Context]
+  , _envVarCount :: Int
+  , _envLabelCount :: Int
   }
 
 $(makeLenses ''Env)
@@ -54,7 +64,7 @@ case it returns from the function.
 -}
 
 initEnv :: Env
-initEnv = Env M.empty 0 0 []
+initEnv = Env M.empty 0 0 0
 
 initSigs :: Signatures
 initSigs = M.fromList $ zip (map getId stdExtFunDefs) stdExtFunDefs
@@ -153,7 +163,12 @@ genInstrs = \case
 
   J.SExp jExpr -> Right <$> convExpr jExpr
 
-  -- If Expr Stmt
+  J.If jExpr jStmt -> do
+    condInstrs <- convExpr jExpr
+    -- nnnn
+    -- let br
+    undefined
+
   -- IfElse Expr Stmt Stmt
   -- While Expr Stmt
 
@@ -211,6 +226,9 @@ globalId = Ident Global
 localId :: String -> Ident
 localId = Ident Local
 
+newLabel :: String -> Label
+newLabel = Label
+
 -- | Shorthand for creating integers of size n bits.
 iBit :: Int -> Type
 iBit = TNBitInt
@@ -229,52 +247,92 @@ i1 = iBit 1
 -- * Environment-related helper functions.
 --
 
+-- TODO: are these even needed
 modTopCxt :: (Context -> Context) -> Convert ()
-modTopCxt f = ST.modify $ over envCxts $ \case
-  []     -> error errMsg
-  x : xs -> f x : xs
-  where
-    errMsg :: String
-    errMsg = mconcat
-      [ "modTopCxt: empty context stack\n"
-      , "call stack:"
-      , Stack.prettyCallStack Stack.callStack
-      ]
+modTopCxt = undefined
+-- modTopCxt f = ST.modify $ over envCxts $ \case
+--   []     -> error errMsg
+--   x : xs -> f x : xs
+--   where
+--     errMsg :: String
+--     errMsg = mconcat
+--       [ "modTopCxt: empty context stack\n"
+--       , "call stack:"
+--       , Stack.prettyCallStack Stack.callStack
+--       ]
 
 pushCxt :: Convert ()
-pushCxt = ST.modify $ over envCxts (M.empty :)
+pushCxt = undefined -- ST.modify $ over envCxts (M.empty :)
 
 popCxt :: Stack.HasCallStack => Convert ()
-popCxt = ST.modify $ over envCxts $ \case
-  []     -> error errMsg
-  x : xs -> xs
+popCxt = undefined
+-- popCxt = ST.modify $ over envCxts $ \case
+--   []     -> error errMsg
+--   x : xs -> xs
+--   where
+--     errMsg :: String
+--     errMsg = mconcat
+--       [ "popCxt: empty context stack\n"
+--       , "call stack:"
+--       , Stack.prettyCallStack Stack.callStack
+--       ]
+
+setCount :: Lens' Env Int -> Int -> Convert ()
+setCount lens n = ST.modify $ set lens n
+
+incrCount :: Lens' Env Int -> Convert ()
+incrCount lens = ST.modify $ lens +~ 1
+
+getCount :: Lens' Env Int -> Convert Int
+getCount lens = ST.gets $ view lens
+
+
+next :: Lens' Env Int -> (Lens' Env Int -> Convert a) -> Convert a
+next lens makeWith = do
+  res <- makeWith lens
+  incrCount lens
+  return res
+
+{- | Return the next unique label name as an Ident, then
+also increment the counter.
+-}
+nextLabel :: Convert Label
+nextLabel = next envLabelCount getLabel
   where
-    errMsg :: String
-    errMsg = mconcat
-      [ "popCxt: empty context stack\n"
-      , "call stack:"
-      , Stack.prettyCallStack Stack.callStack
-      ]
+    getLabel :: Lens' Env Int -> Convert Label
+    getLabel lens = Label . (labelBase ++) . show <$> getCount lens
 
-setCount :: Int -> Convert ()
-setCount n = ST.modify $ set envCount n
+{- | Return the next unique global variable name as an Ident, then
+also increment the counter.
+-}
+nextGlobal :: Convert Ident
+nextGlobal = next envGlobalCount getGlobal
+  where
+    getGlobal :: Lens' Env Int -> Convert Ident
+    getGlobal lens = globalId . (globalBase ++) . show <$> getCount lens
 
-incrCount :: Convert ()
-incrCount = ST.modify $ envCount +~ 1
-
-{- | Return the next unique variable name as an Ident, then
-increment the counter.
+{- | Return the next unique local variable name as an Ident, then
+also increment the counter.
 -}
 nextVar :: Convert Ident
-nextVar = localId . (varBase ++) . show  <$> ST.gets (view envCount)
+nextVar = next envVarCount getVar
+  where
+    getVar :: Lens' Env Int -> Convert Ident
+    getVar lens = localId . (varBase ++) . show <$> getCount lens
 
-{- | The base variable name, onto which the incrementing suffix is
-appended. NOTE that this needs to be different from the @varBase@ defined
+{- | The base variable names, onto which the incrementing suffix is
+appended. NOTE that these need to be different from the @varBase@ defined
 in the alpha renaming phase, to avoid overlapping and collision of
 variables.
 -}
 varBase :: String
-varBase = "lv"
+varBase = "var"
+
+globalBase :: String
+globalBase = "gvar"
+
+labelBase :: String
+labelBase = "label"
 
 --
 -- * Various helper functions.

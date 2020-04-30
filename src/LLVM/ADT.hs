@@ -177,5 +177,5 @@ data Scope
   | Local
   deriving (Eq, Ord, Show)
 
-newtype Label = Label Ident
+newtype Label = Label String
   deriving (Eq, Show)
