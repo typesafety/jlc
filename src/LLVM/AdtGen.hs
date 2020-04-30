@@ -9,6 +9,7 @@ other preprocessing/optimizations.
 -- TODO: Explicit export list
 module LLVM.AdtGen where
 
+import Data.Maybe (fromJust)
 import Lens.Micro.Platform
 
 import qualified Control.Monad.Reader as R
@@ -20,7 +21,6 @@ import qualified GHC.Stack as Stack
 import LLVM.ADT
 
 import qualified Javalette.Abs as J
-
 
 type Graph = M.Map Label (Maybe Label)
 
@@ -41,7 +41,10 @@ data Env = Env
 
 $(makeLenses ''Env)
 
-type Convert a = R.ReaderT Signatures (ST.State Env) a
+{- | The monad stack keeps track of function signatures and relevant
+state when traversing the Javalette AST.
+-}
+type Convert a = R.ReaderT (Signatures, Maybe Type) (ST.State Env) a
 
 type Signatures = M.Map Ident FunDecl
 
@@ -80,7 +83,7 @@ stdExtFunDefs =
 
 convert :: J.Prog -> LLVM
 convert p
-  = ST.evalState (R.runReaderT (convProg p) initSigs) initEnv
+  = ST.evalState (R.runReaderT (convProg p) (initSigs, Nothing)) initEnv
 
 convProg :: J.Prog -> Convert LLVM
 convProg = undefined
@@ -115,7 +118,12 @@ genInstrs :: J.Stmt -> Convert (Either [BasicBlock] [Instruction])
 genInstrs = \case
   J.Empty -> pure $ Right []
 
-  J.BStmt (J.Block stmts) -> error "not defined, how to?"
+  -- Because we have done alpha-renaming, we don't need to worry
+  -- about scoping when encountering variable declarations. We can
+  -- assume that variables are only declared once, thus there will
+  -- be no ambiguities when referencing variables elsewhere.
+  J.BStmt (J.Block stmts) ->
+    error "TODO: Flatten blocks before this, and we can ignore this case"
 
   -- Due to the preprocessing desugaring step, we can expect
   -- there to be only a single Item per declaration statement,
@@ -129,18 +137,25 @@ genInstrs = \case
     -- The final LLVM instruction assigns the value of the expression
     -- to some variable; we want to assign this to the given Id.
     let (inits, [lastInstr]) = splitLast instrs
-    pure $ Right $ inits ++ [replaceAss (transId Local jId) lastInstr]
+    pure . Right $ inits ++ [replaceAss (transId Local jId) lastInstr]
 
     where
       replaceAss :: Ident -> Instruction -> Instruction
       replaceAss id (IAss _ instr) = IAss id instr
 
-  -- J.Ret expr -> do
-  -- VRet
+  J.Ret jExpr -> do
+    instrs <- convExpr jExpr
+    let id = lastBinding instrs
+    retType <- R.asks (fromJust . snd)
+    pure . Right $ instrs ++ [INoAss $ ITerm $ Ret retType (SIdent id)]
+
+  J.VRet -> pure . Right $ [INoAss $ ITerm VRet]
+
+  J.SExp jExpr -> Right <$> convExpr jExpr
+
   -- If Expr Stmt
   -- IfElse Expr Stmt Stmt
   -- While Expr Stmt
-  -- SExp Expr
 
   -- We do not handle some cases that are expected to disappear in
   -- preprocessing, so we throw an error if encountered.

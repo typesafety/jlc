@@ -101,7 +101,8 @@ data ArithOp
   deriving (Eq, Show)
 
 data TermOp
-  = Ret
+  = Ret Type Source
+  | VRet
   | Br
   deriving (Eq, Show)
 
