@@ -10,6 +10,7 @@ other preprocessing/optimizations.
 -- TODO: Explicit export list
 module LLVM.AdtGen where
 
+import Data.Bifunctor (second)
 import Data.Maybe (fromJust)
 import Lens.Micro.Platform
 
@@ -170,7 +171,7 @@ convStmt = \case
 
   J.Ass jId jExpr -> do
     -- Translating the JL expression to LLVM may use multiple instructions.
-    instrs <- convExpr jExpr
+    (instrs, _) <- convExpr jExpr
     -- The final LLVM instruction assigns the value of the expression
     -- to some variable; we want to assign this to the given Id.
     let (inits, [lastInstr]) = splitLast instrs
@@ -182,36 +183,98 @@ convStmt = \case
       replaceAss id (IAss _ instr) = IAss id instr
 
   J.Ret jExpr -> do
-    instrs <- convExpr jExpr
-    let id = lastBinding instrs
+    (instrs, id) <- second fromJust <$> convExpr jExpr
     -- Get the return type of our current fucntion.
     retType <- R.asks (fromJust . view envRetType)
-    pure . map TrI $ instrs ++ [INoAss $ ITerm $ Ret retType (SIdent id)]
+    -- Append a ret instruction to the generated instructions.
+    pure . map TrI
+      $ instrs ++ [INoAss $ ITerm $ Ret retType (SIdent id)]
 
   J.VRet -> pure [TrI $ INoAss $ ITerm VRet]
 
-  J.SExp jExpr -> map TrI <$> convExpr jExpr
+  J.SExp jExpr -> map TrI . fst <$> convExpr jExpr
 
   J.If jExpr jStmt -> do
-    condInstrs <- convExpr jExpr
-    -- let cmpInstr = 
-
-
+    (condInstrs, condId) <- second fromJust <$> convExpr jExpr
     ifLabel <- nextLabel
-    elseLabel <- nextLabel
+    endLabel <- nextLabel
+
     body <- convStmt jStmt
 
-    -- let br
-    undefined
+    let brInstr = brIdCond condId ifLabel endLabel
+    let brEnd = brUncond endLabel
 
-  -- IfElse Expr Stmt Stmt
-  -- While Expr Stmt
+    return $ mconcat
+      -- Condition
+      [ map TrI condInstrs
+      , [TrI brInstr]
+      -- If
+      , [TrL ifLabel]
+      , body
+      , [TrI brEnd]
+      -- End
+      , [TrL endLabel]
+      ]
+
+  J.IfElse jExpr jS1 jS2 -> do
+    (condInstrs, condId) <- second fromJust <$> convExpr jExpr
+    ifLabel <- nextLabel
+    elseLabel <- nextLabel
+    endLabel <- nextLabel
+
+    ifBody <- convStmt jS1
+    elseBody <- convStmt jS2
+
+    let brInstr = brIdCond condId ifLabel elseLabel
+    let brEnd = brUncond endLabel
+
+    return $ mconcat
+      -- Condition
+      [ map TrI condInstrs
+      , [TrI brInstr]
+      -- If
+      , [TrL ifLabel]
+      , ifBody
+      , [TrI brEnd]
+      -- Else
+      , [TrL elseLabel]
+      , elseBody
+      , [TrI brEnd]
+      -- End
+      , [TrL endLabel]
+      ]
+
+  J.While jExpr jStmt -> do
+    (condInstrs, condId) <- second fromJust <$> convExpr jExpr
+    condLabel <- nextLabel
+    bodyLabel <- nextLabel
+    endLabel <- nextLabel
+
+    body <- convStmt jStmt
+
+    let brInstr = brIdCond condId bodyLabel endLabel
+    let brStart = brUncond condLabel
+
+    return $ mconcat
+      -- Condition
+      [ [TrL condLabel]
+      , map TrI condInstrs
+      , [TrI brInstr]
+      -- Body
+      , [TrL bodyLabel]
+      , body
+      , [TrI brStart]
+      -- End
+      , [TrL endLabel]
+      ]
+
 
   -- We do not handle some cases that are expected to disappear in
   -- preprocessing, so we throw an error if encountered.
   stmt -> error $ "genInstrs: Unexpected Javalette stmt:\n" ++ show stmt
 
   where
+    -- TODO: Remove (?)
     -- Get the assigned variable from the last instruction of a list.
     -- Crashes if this is not applicable for that particular instruction,
     -- for example return or branching instructions.
@@ -223,8 +286,12 @@ convStmt = \case
     splitLast :: [a] -> ([a], [a])
     splitLast xs = splitAt (length xs - 1) xs
 
--- TODO
-convExpr :: J.Expr -> Convert [Instruction]
+
+{- | Convert a Javalette expression to a series of instructions. Return
+the instructions and the final variable which the result is assigned to,
+if applicable.
+-}
+convExpr :: J.Expr -> Convert ([Instruction], Maybe Ident)
 convExpr = undefined
 
 
@@ -252,6 +319,20 @@ transType = \case
 --
 -- * Helper function for LLVM ADT constructors.
 --
+
+{- | Create a conditional branching instruction where the the conditional
+value is a variable.
+-}
+brIdCond :: Ident -> Label -> Label -> Instruction
+brIdCond id = brCond (SIdent id)
+
+-- | Create a conditional branching instruction.
+brCond :: Source -> Label -> Label -> Instruction
+brCond s l1 l2 = INoAss $ ITerm $ BrCond s l1 l2
+
+-- | Create an unconditional branching instruction.
+brUncond :: Label -> Instruction
+brUncond l = INoAss $ ITerm $ Br l
 
 -- | Create a global scope Ident (@var).
 globalId :: String -> Ident

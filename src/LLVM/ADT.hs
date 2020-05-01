@@ -108,7 +108,8 @@ data ArithOp
 data TermOp
   = Ret Type Source
   | VRet
-  | Br
+  | BrCond Source Label Label
+  | Br Label
   deriving (Eq, Show)
 
 data MemOp
