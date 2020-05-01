@@ -23,58 +23,67 @@ import LLVM.ADT
 
 import qualified Javalette.Abs as J
 
+
 newtype OriginalId = OriginalId Ident
+  deriving (Eq, Ord, Show)
 
 newtype NewId = NewId Ident
+  deriving (Eq, Ord, Show)
 
 type Context = M.Map OriginalId NewId
+
+newtype GlobalVar = GlobalVar Ident
+  deriving (Eq, Ord, Show)
+
+newtype StringLit = StringLit String
+  deriving (Eq, Ord, Show)
+
+type StringTable = M.Map GlobalVar StringLit
 
 {-| The carried state:
 @stVarCount@ - Counter for local variable names (suffix).
 @stGlobal@ - Counter for global variable names (suffix).
 @stLabel@ - Counter for label names (suffix).
 @stCxt@ - Keeps track of variable names if they've been renamed.
+@stGlobalVars@ - Table mapping global variables to string literals.
+  Works since Javalette only uses strings as literals, would possibly
+  need rework if the language specification changes. The only only
+  operations on this map should be _unique_ insertions and reads.
 -}
 data St = St
   { _stGlobalCount :: Int
   , _stVarCount :: Int
   , _stLabelCount :: Int
   , _stCxt :: Context
+  , _stGlobalVars :: StringTable
   }
 
 $(makeLenses ''St)
 
 initSt :: St
-initSt = St 0 0 0 M.empty
+initSt = St 0 0 0 M.empty M.empty
 
 type Signatures = M.Map Ident FunDecl
-
-newtype GlobalVar = GlobalVar String
-
-newtype StringLit = StringLit String
-
-type StringTable = M.Map GlobalVar StringLit
 
 {- | The environment:
 @envSigs@ - Table of function return types and argument types.
 @envRetType@ - When inside a function, this is its return type.
-@envGlobalVars@ - Table mapping global variables to string literals.
-  Works since Javalette only uses strings as literals, would possibly
-  need rework if the language specification changes.
 -}
 data Env = Env
   { _envSigs :: Signatures
   , _envRetType :: Maybe Type
-  , _envGlobalVars :: StringTable
   }
 
 $(makeLenses ''Env)
 
-initSigs :: Signatures
-initSigs = M.fromList $ zip (map getId stdExtFunDefs) stdExtFunDefs
+initEnv :: Env
+initEnv = Env initSigs Nothing
   where
-    getId :: FunDecl -> Ident
-    getId (FunDecl _ id _) = id
+    initSigs :: Signatures
+    initSigs = M.fromList $ zip (map getId stdExtFunDefs) stdExtFunDefs
+      where
+        getId :: FunDecl -> Ident
+        getId (FunDecl _ id _) = id
 
 {- | Javalette is first translated to this intermediate type, which will
 then be assembled into actual basic blocks. This intermediate type
@@ -87,7 +96,7 @@ data Translated
 {- | The monad stack keeps track of function signatures and relevant
 state when traversing the Javalette AST.
 -}
-type Convert a = R.ReaderT (Signatures, Maybe Type) (ST.State St) a
+type Convert a = R.ReaderT Env (ST.State St) a
 
 --
 -- * "Boilerplate"-like content to include in .ll source files.
@@ -110,7 +119,7 @@ stdExtFunDefs =
 
 convert :: J.Prog -> LLVM
 convert p
-  = ST.evalState (R.runReaderT (convProg p) (initSigs, Nothing)) initSt
+  = ST.evalState (R.runReaderT (convProg p) initEnv) initSt
 
 convProg :: J.Prog -> Convert LLVM
 convProg = undefined
@@ -176,7 +185,7 @@ convStmt = \case
     instrs <- convExpr jExpr
     let id = lastBinding instrs
     -- Get the return type of our current fucntion.
-    retType <- R.asks (fromJust . snd)
+    retType <- R.asks (fromJust . view envRetType)
     pure . map TrI $ instrs ++ [INoAss $ ITerm $ Ret retType (SIdent id)]
 
   J.VRet -> pure [TrI $ INoAss $ ITerm VRet]
@@ -270,16 +279,31 @@ i1 :: Type
 i1 = iBit 1
 
 --
+-- * Environment-related helper functions.
+--
+
+--
 -- * State-related helper functions.
 --
+
+-- | Add a string as a global variable and return its Ident.
+addGlobalStr :: String -> Convert Ident
+addGlobalStr str = do
+  id <- nextGlobal
+  ST.modify $ over stGlobalVars $ M.insert (GlobalVar id) (StringLit str)
+  return id
 
 {- | Given the original variable name, return its new name as an ident
 if it exists (the original has been previously been renamed).
 If it does not exist (has not been renamed yet), return the input variable
 as an Ident.
 -}
--- lookupVar :: Scope -> OriginalId -> Convert Ident
--- lookupVar (OriginalId id) = 
+lookupVar :: OriginalId -> Convert Ident
+lookupVar origId@(OriginalId inId) = do
+  cxt <- ST.gets (view stCxt)
+  case M.lookup origId cxt of
+    Just (NewId outId) -> pure outId
+    Nothing            -> pure inId
 
 setCount :: Lens' St Int -> Int -> Convert ()
 setCount lens n = ST.modify $ set lens n
@@ -289,7 +313,6 @@ incrCount lens = ST.modify $ lens +~ 1
 
 getCount :: Lens' St Int -> Convert Int
 getCount lens = ST.gets $ view lens
-
 
 next :: Lens' St Int -> (Lens' St Int -> Convert a) -> Convert a
 next lens makeWith = do
@@ -341,10 +364,3 @@ labelBase = "label"
 --
 -- * Various helper functions.
 --
-
--- | Add a global string to the AST.
-addGlobalStr :: Ident -> String -> LLVM -> LLVM
-addGlobalStr id s llvm = llvm { llvmVarDefs = v : llvmVarDefs llvm }
-  where
-    v :: VarDef
-    v = VarDef id (TArray (length s) i8) (SVal $ LString s)
