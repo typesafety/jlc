@@ -170,13 +170,18 @@ convStmt = \case
     pure [TrI $ IAss lVar (IMem $ Alloca lType)]
 
   J.Ass jId jExpr -> do
-    -- Translating the JL expression to LLVM may use multiple instructions.
     (instrs, _) <- convExpr jExpr
     -- The final LLVM instruction assigns the value of the expression
-    -- to some variable; we want to assign this to the given Id.
+    -- to some variable; we want to assign this to the given Id instead.
     let (inits, [lastInstr]) = splitLast instrs
-    let lId = transId Local jId
-    pure . map TrI $ inits ++ [replaceAss lId lastInstr]
+
+    -- Check if the input variable has been rename (to adhere to SSA),
+    -- and get its new, actual id. Then, since we will use up this id
+    -- for this assignment, we need to update the context such that
+    -- the input variable points to a fresh variable afterwards.
+    newId <- lookupIncrVar (OriginalId $ transId Local jId)
+
+    pure . map TrI $ inits ++ [replaceAss newId lastInstr]
 
     where
       replaceAss :: Ident -> Instruction -> Instruction
@@ -268,7 +273,6 @@ convStmt = \case
       , [TrL endLabel]
       ]
 
-
   -- We do not handle some cases that are expected to disappear in
   -- preprocessing, so we throw an error if encountered.
   stmt -> error $ "genInstrs: Unexpected Javalette stmt:\n" ++ show stmt
@@ -286,14 +290,27 @@ convStmt = \case
     splitLast :: [a] -> ([a], [a])
     splitLast xs = splitAt (length xs - 1) xs
 
-
 {- | Convert a Javalette expression to a series of instructions. Return
 the instructions and the final variable which the result is assigned to,
 if applicable.
 -}
 convExpr :: J.Expr -> Convert ([Instruction], Maybe Ident)
-convExpr = undefined
-
+convExpr = \case
+  J.EVar jId -> undefined
+  -- ELitInt Integer
+  -- ELitDouble Double
+  -- ELitTrue
+  -- ELitFalse
+  -- EApp Ident [Expr]
+  -- EString String
+  -- Neg Expr
+  -- Not Expr
+  -- EMul Expr MulOp Expr
+  -- EAdd Expr AddOp Expr
+  -- ERel Expr RelOp Expr
+  -- EAnd Expr Expr
+  -- EOr Expr Expr
+  -- AnnExp Expr Type
 
 --
 -- * Functions for translating from Javalette ADT to LLVM ADT.
@@ -373,6 +390,24 @@ addGlobalStr str = do
   id <- nextGlobal
   ST.modify $ over stGlobalVars $ M.insert (GlobalVar id) (StringLit str)
   return id
+
+{- | Given the original variable name, return its new (effective) name
+as an Ident, then update its mapping to the next unique variable name.
+The same as @\ orig -> lookupVar orig >>= \ id -> incrVar orig >> return id@.
+-}
+lookupIncrVar :: OriginalId -> Convert Ident
+lookupIncrVar orig = do
+  id <- lookupVar orig
+  incrVar orig
+  return id
+
+{- | Given the original variable name, update its actual name to the
+next unique variable name.
+-}
+incrVar :: OriginalId -> Convert ()
+incrVar origId = do
+  newId <- nextVar
+  ST.modify $ over stCxt $ M.adjust (const $ NewId newId) origId
 
 {- | Given the original variable name, return its new name as an ident
 if it exists (the original has been previously been renamed).
