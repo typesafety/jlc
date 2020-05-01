@@ -42,7 +42,7 @@ newtype StringLit = StringLit String
 
 type StringTable = M.Map GlobalVar StringLit
 
-type PointerTypes = M.Map Ident Type
+type Types = M.Map Ident Type
 
 {-| The carried state:
 @stVarCount@ - Counter for local variable names (suffix).
@@ -53,9 +53,7 @@ type PointerTypes = M.Map Ident Type
   Works since Javalette only uses strings as literals, would possibly
   need rework if the language specification changes. The only only
   operations on this map should be _unique_ insertions and reads.
-@stPointerTypes@ - Keeps track of types of pointers. Used _only_ for
-  the types of Store and Load instructions (Javalette assignments,
-  declarations, and accessing of variables).
+@stTypes@ - Keeps track of types of variables.
 -}
 data St = St
   { _stGlobalCount :: Int
@@ -63,7 +61,7 @@ data St = St
   , _stLabelCount :: Int
   , _stCxt :: Context
   , _stGlobalVars :: StringTable
-  , _stPointerTypes :: PointerTypes
+  , _stTypes :: Types
   }
 
 $(makeLenses ''St)
@@ -174,7 +172,7 @@ convStmt = \case
   J.Decl jType [J.NoInit jId] -> do
     let lVar = transId Local jId
     let lType = transType jType
-    bindPointerType lVar (TPointer lType)
+    bindType lVar (TPointer lType)
     pure [TrI $ IAss lVar (IMem $ Alloca lType)]
 
   J.Ass jId jExpr -> do
@@ -290,7 +288,8 @@ convExpr = \case
     typ <- typeOf memId
     assId <- nextVar
     let instr = IAss assId $ IMem $ Load typ memId
-    return ([instr], Just assId)
+
+    bindType assId typ >> return ([instr], Just assId)
 
   J.EApp jId jExprs -> do
     let funId = transId Global jId
@@ -307,11 +306,27 @@ convExpr = \case
       _ -> do
         assId <- nextVar
         let callInstr = IAss assId $ IOther $ Call retType funId args
-        return (concat instrss ++ [callInstr], Just assId)
 
+        bindType assId retType >>
+          return (concat instrss ++ [callInstr], Just assId)
 
-  -- EString String
-  -- Neg Expr
+  J.EString str -> do
+    gId <- addGlobalStr str
+    bindType gId (strType str) >> return ([], Just gId)
+
+  J.Neg jExpr -> do
+    (instrs, id) <- second fromJust <$> convExpr jExpr
+    typ <- typeOf id
+    assId <- nextVar
+
+    let (op, lit) =
+          case typ of
+            Double     -> (Fmul, LFloat (-1))
+            TNBitInt _ -> (Mul, LInt (-1))
+    let ins = IAss assId $ IArith op typ (SIdent id) (SVal lit)
+
+    bindType assId typ >> return (instrs ++ [ins], Just assId)
+
   -- Not Expr
   -- EMul Expr MulOp Expr
   -- EAdd Expr AddOp Expr
@@ -389,6 +404,9 @@ i8 = iBit 8
 i1 :: Type
 i1 = iBit 1
 
+strType :: String -> Type
+strType str = TPointer $ TArray (length str) i8
+
 --
 -- * Environment-related helper functions.
 --
@@ -402,20 +420,18 @@ lookupFun :: Stack.HasCallStack => Ident -> Convert (Type, [Param])
 lookupFun id = fromJust . M.lookup id <$> R.asks (view envSigs) >>= \case
   FunDecl retType _ params -> return (retType, params)
 
--- | Set the poitner type for a variable. The variable/type must be a pointer.
-bindPointerType :: Stack.HasCallStack => Ident -> Type -> Convert ()
-bindPointerType id typ = case typ of
-  TPointer _ -> ST.modify $ over stPointerTypes $ ins id typ
-  otherType  -> error "bindPointerType: Type not a pointer"
+-- | Set the type for a variable.
+bindType :: Stack.HasCallStack => Ident -> Type -> Convert ()
+bindType id typ = ST.modify $ over stTypes $ add id typ
   where
-    ins :: Stack.HasCallStack => Ident -> Type -> PointerTypes -> PointerTypes
-    ins i t m = if i `M.notMember` m
-      then M.insert i t m
-      else error "bindPointerType: Attempting to insert existing binding"
+    add :: Stack.HasCallStack => Ident -> Type -> Types -> Types
+    add i t m = if i `M.notMember` m
+                  then M.insert i t m
+                  else error "bindType: Attempting to insert existing binding"
 
--- | Get the pointer type of a variable. The variable must be a pointer.
+-- | Get the type of a variable.
 typeOf :: Ident -> Convert Type
-typeOf id = (M.! id) <$> ST.gets (view stPointerTypes)
+typeOf id = (M.! id) <$> ST.gets (view stTypes)
 
 -- | Add a string as a global variable and return its Ident.
 addGlobalStr :: String -> Convert Ident
