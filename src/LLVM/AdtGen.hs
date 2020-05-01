@@ -10,6 +10,7 @@ other preprocessing/optimizations.
 -- TODO: Explicit export list
 module LLVM.AdtGen where
 
+import Control.Monad (when)
 import Data.Bifunctor (second)
 import Data.Maybe (fromJust)
 import Lens.Micro.Platform
@@ -41,6 +42,8 @@ newtype StringLit = StringLit String
 
 type StringTable = M.Map GlobalVar StringLit
 
+type PointerTypes = M.Map Ident Type
+
 {-| The carried state:
 @stVarCount@ - Counter for local variable names (suffix).
 @stGlobal@ - Counter for global variable names (suffix).
@@ -50,6 +53,9 @@ type StringTable = M.Map GlobalVar StringLit
   Works since Javalette only uses strings as literals, would possibly
   need rework if the language specification changes. The only only
   operations on this map should be _unique_ insertions and reads.
+@stPointerTypes@ - Keeps track of types of pointers. Used _only_ for
+  the types of Store and Load instructions (Javalette assignments,
+  declarations, and accessing of variables).
 -}
 data St = St
   { _stGlobalCount :: Int
@@ -57,12 +63,13 @@ data St = St
   , _stLabelCount :: Int
   , _stCxt :: Context
   , _stGlobalVars :: StringTable
+  , _stPointerTypes :: PointerTypes
   }
 
 $(makeLenses ''St)
 
 initSt :: St
-initSt = St 0 0 0 M.empty M.empty
+initSt = St 0 0 0 M.empty M.empty M.empty
 
 type Signatures = M.Map Ident FunDecl
 
@@ -147,7 +154,6 @@ convBody :: [J.Stmt] -> Convert [BasicBlock]
 convBody stmts = do
   undefined
 
-
 {- | Convert a JL statment into a list of LLVM instructions and labels.
 The ordering of the list conserves the semantics of the input program.
 -}
@@ -167,25 +173,16 @@ convStmt = \case
   J.Decl jType [J.NoInit jId] -> do
     let lVar = transId Local jId
     let lType = transType jType
+    bindPointerType lVar (TPointer lType)
     pure [TrI $ IAss lVar (IMem $ Alloca lType)]
 
   J.Ass jId jExpr -> do
-    (instrs, _) <- convExpr jExpr
-    -- The final LLVM instruction assigns the value of the expression
-    -- to some variable; we want to assign this to the given Id instead.
-    let (inits, [lastInstr]) = splitLast instrs
-
-    -- Check if the input variable has been rename (to adhere to SSA),
-    -- and get its new, actual id. Then, since we will use up this id
-    -- for this assignment, we need to update the context such that
-    -- the input variable points to a fresh variable afterwards.
-    newId <- lookupIncrVar (OriginalId $ transId Local jId)
-
-    pure . map TrI $ inits ++ [replaceAss newId lastInstr]
-
-    where
-      replaceAss :: Ident -> Instruction -> Instruction
-      replaceAss id (IAss _ instr) = IAss id instr
+    (instrs, id) <- second fromJust <$> convExpr jExpr
+    let storeId = transId Local jId
+    typeOf storeId >>= \case
+      pType@(TPointer typ) -> do
+        let storeInstr = INoAss $ IMem $ Store typ (SIdent id) pType storeId
+        pure . map TrI $ instrs ++ [storeInstr]
 
   J.Ret jExpr -> do
     (instrs, id) <- second fromJust <$> convExpr jExpr
@@ -278,15 +275,6 @@ convStmt = \case
   stmt -> error $ "genInstrs: Unexpected Javalette stmt:\n" ++ show stmt
 
   where
-    -- TODO: Remove (?)
-    -- Get the assigned variable from the last instruction of a list.
-    -- Crashes if this is not applicable for that particular instruction,
-    -- for example return or branching instructions.
-    lastBinding :: [Instruction] -> Ident
-    lastBinding instrs =
-      let (_, [IAss id _]) = splitLast instrs
-      in id
-
     splitLast :: [a] -> ([a], [a])
     splitLast xs = splitAt (length xs - 1) xs
 
@@ -296,7 +284,12 @@ if applicable.
 -}
 convExpr :: J.Expr -> Convert ([Instruction], Maybe Ident)
 convExpr = \case
-  J.EVar jId -> undefined
+  J.EVar jId -> do
+    dbId <- lookupVar $ OriginalId $ transId Local jId
+    assId <- nextVar
+    -- return ([IAss new])
+    undefined
+
   -- ELitInt Integer
   -- ELitDouble Double
   -- ELitTrue
@@ -383,6 +376,21 @@ i1 = iBit 1
 --
 -- * State-related helper functions.
 --
+
+-- | Set the poitner type for a variable. The variable/type must be a pointer.
+bindPointerType :: Stack.HasCallStack => Ident -> Type -> Convert ()
+bindPointerType id typ = case typ of
+  TPointer _ -> ST.modify $ over stPointerTypes $ ins id typ
+  otherType  -> error "bindPointerType: Type not a pointer"
+  where
+    ins :: Stack.HasCallStack => Ident -> Type -> PointerTypes -> PointerTypes
+    ins i t m = if i `M.notMember` m
+      then M.insert i t m
+      else error "bindPointerType: Attempting to insert existing binding"
+
+-- | Get the pointer type of a variable. The variable must be a pointer.
+typeOf :: Ident -> Convert Type
+typeOf id = (M.! id) <$> ST.gets (view stPointerTypes)
 
 -- | Add a string as a global variable and return its Ident.
 addGlobalStr :: String -> Convert Ident
