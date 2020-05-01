@@ -25,13 +25,13 @@ instance Monoid LLVM where
 data FunDecl = FunDecl
   Type   -- ^ Return type
   Ident  -- ^ Function Name
-  [Arg]  -- ^ Parameters
+  [Param]  -- ^ Parameters
   deriving (Eq, Show)
 
 data FunDef = FunDef
   Type          -- ^ Return type
   Ident         -- ^ Function name
-  [Arg]         -- ^ Parameters
+  [Param]         -- ^ Parameters
   [BasicBlock]  -- ^ Function body
   deriving (Eq, Show)
 
@@ -122,7 +122,7 @@ data MemOp
 data OtherOp
   = Icmp ICond Type Source Source
   | Fcmp FCond Type Source Source
-  | Call (Maybe Ident) Type Ident [Arg]
+  | Call Type Ident [Arg]
   deriving (Eq, Show)
 
 data FCond
@@ -155,6 +155,9 @@ data ICond
   | IC_SGE
   | IC_SLT
   | IC_SLE
+  deriving (Eq, Show)
+
+data Param = Param Type Ident
   deriving (Eq, Show)
 
 data Arg = Arg Type Ident

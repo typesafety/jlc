@@ -74,7 +74,8 @@ initSt = St 0 0 0 M.empty M.empty M.empty
 type Signatures = M.Map Ident FunDecl
 
 {- | The environment:
-@envSigs@ - Table of function return types and argument types.
+@envSigs@ - Table of mappings from function Idents to their return types and
+  argument types. For now, all Idents should be of global scope.
 @envRetType@ - When inside a function, this is its return type.
 -}
 data Env = Env
@@ -115,10 +116,10 @@ stdExtFunDefs :: [FunDecl]
 stdExtFunDefs =
   [ FunDecl i32    (globalId "readInt")     []
   , FunDecl Double (globalId "readDouble")  []
-  , FunDecl Void   (globalId "printInt")    [Arg i32 (localId "n")]
-  , FunDecl Void   (globalId "printDouble") [Arg Double (localId "d")]
+  , FunDecl Void   (globalId "printInt")    [Param i32 (localId "n")]
+  , FunDecl Void   (globalId "printDouble") [Param Double (localId "d")]
   , FunDecl
-      Void (globalId "printString") [Arg (TPointer i8) (localId "s")]
+      Void (globalId "printString") [Param (TPointer i8) (localId "s")]
   ]
 
 --
@@ -144,10 +145,10 @@ convTopDef (J.FnDef jType jId jArgs (J.Block stmts)) = do
   -- Functions have global scope (for now, at least)
   let retType = transType jType
   let id      = transId Global jId
-  let args    = map transArg jArgs
+  let params  = map transParam jArgs
 
   blocks <- convBody stmts
-  return $ FunDef retType id args blocks
+  return $ FunDef retType id params blocks
 
 
 convBody :: [J.Stmt] -> Convert [BasicBlock]
@@ -285,16 +286,30 @@ if applicable.
 convExpr :: J.Expr -> Convert ([Instruction], Maybe Ident)
 convExpr = \case
   J.EVar jId -> do
-    dbId <- lookupVar $ OriginalId $ transId Local jId
+    let memId = transId Local jId
+    typ <- typeOf memId
     assId <- nextVar
-    -- return ([IAss new])
-    undefined
+    let instr = IAss assId $ IMem $ Load typ memId
+    return ([instr], Just assId)
 
-  -- ELitInt Integer
-  -- ELitDouble Double
-  -- ELitTrue
-  -- ELitFalse
-  -- EApp Ident [Expr]
+  J.EApp jId jExprs -> do
+    let funId = transId Global jId
+    (retType, params) <- lookupFun funId
+    (instrss, argVars) <- unzip <$> mapM convExpr jExprs
+
+    let paramTypes = map (\ (Param t _) -> t) params
+    let args = zipWith Arg paramTypes (map fromJust argVars)
+
+    case retType of
+      Void -> do
+        let callInstr = INoAss $ IOther $ Call retType funId args
+        return (concat instrss ++ [callInstr], Nothing)
+      _ -> do
+        assId <- nextVar
+        let callInstr = IAss assId $ IOther $ Call retType funId args
+        return (concat instrss ++ [callInstr], Just assId)
+
+
   -- EString String
   -- Neg Expr
   -- Not Expr
@@ -305,6 +320,11 @@ convExpr = \case
   -- EOr Expr Expr
   -- AnnExp Expr Type
 
+  -- ELitInt Integer
+  -- ELitDouble Double
+  -- ELitTrue
+  -- ELitFalse
+
 --
 -- * Functions for translating from Javalette ADT to LLVM ADT.
 --
@@ -312,8 +332,8 @@ convExpr = \case
 transId :: Scope -> J.Ident -> Ident
 transId scope (J.Ident str) = Ident scope str
 
-transArg :: J.Arg -> Arg
-transArg (J.Argument jType jId) = Arg (transType jType) (transId Local jId)
+transParam :: J.Arg -> Param
+transParam (J.Argument jType jId) = Param (transType jType) (transId Local jId)
 
 transType :: J.Type -> Type
 transType = \case
@@ -376,6 +396,11 @@ i1 = iBit 1
 --
 -- * State-related helper functions.
 --
+
+-- Given a function ID, return its return type and parameters.
+lookupFun :: Stack.HasCallStack => Ident -> Convert (Type, [Param])
+lookupFun id = fromJust . M.lookup id <$> R.asks (view envSigs) >>= \case
+  FunDecl retType _ params -> return (retType, params)
 
 -- | Set the poitner type for a variable. The variable/type must be a pointer.
 bindPointerType :: Stack.HasCallStack => Ident -> Type -> Convert ()
