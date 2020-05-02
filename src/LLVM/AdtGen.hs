@@ -384,11 +384,16 @@ convExpr = \case
         (J.Minus, TNBitInt _) -> Sub
 
   J.ERel jE1 jOp jE2 -> do
-    undefined
+    (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
+    let relOpC = getOpC jOp sid1Type
+    let ins    = IAss assId $ IOther $ relOpC boolType sid1 sid2
+
+    bindType assId boolType
+      >> return (instrs1 ++ instrs2 ++ [TrI ins], Just $ SIdent assId)
 
     where
-      getOp :: J.RelOp -> Type -> (Type -> Source -> Source -> OtherOp)
-      getOp jOp typ = case (jOp, typ) of
+      getOpC :: J.RelOp -> Type -> (Type -> Source -> Source -> OtherOp)
+      getOpC jOp typ = case (jOp, typ) of
         (J.LTH, TNBitInt _) -> Icmp IC_SLT
         (J.LTH, TDouble)    -> Fcmp FC_OLT
         (J.LE,  TNBitInt _) -> Icmp IC_SLE
@@ -444,7 +449,7 @@ transType :: J.Type -> Type
 transType = \case
   J.Int    -> i32
   J.Double -> TDouble
-  J.Bool   -> i1
+  J.Bool   -> boolType
   J.Void   -> TVoid
   -- Note that this is only usable when setting the type
   -- in function parameters, such as in printString. An actual
@@ -487,6 +492,9 @@ i8 = iBit 8
 
 i1 :: Type
 i1 = iBit 1
+
+boolType :: Type
+boolType = i1
 
 strType :: String -> Type
 strType str = TPointer $ TArray (length str) i8
