@@ -123,11 +123,14 @@ data MemOp
   | GetElementPtr Type [Type]
   deriving (Eq, Show)
 
+-- These should probably be separated into different types if more
+-- constructors are added.
 data OtherOp
   = Icmp ICond Type Source Source
   | Fcmp FCond Type Source Source
   | Call Type Ident [Arg]
   | Sitofp Type Source Type
+  | Zext Type Source Type
   deriving (Eq, Show)
 
 data FCond
