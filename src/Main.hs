@@ -18,9 +18,10 @@ import qualified Frontend.Errors as Errors
 import qualified Frontend.OptimizeAST as OptimizeAST
 import qualified Frontend.PrettyPrinter as PrettyPrinter
 import qualified Frontend.TypeChecker as TypeChecker
+import qualified LLVM.ADT as LLVM_ADT
+import qualified LLVM.AdtGen as LLVM_Gen
 
-
-run :: String -> Either Errors.Error Prog
+run :: String -> Either Errors.Error LLVM_ADT.LLVM
 run code = do
   -- Lex
   let tokens = myLexer code
@@ -49,7 +50,10 @@ run code = do
   -- a bug in the compiler, not a user error.
   let checkedAst2 = either compilerErr id (TypeChecker.typeCheck optimizedAst)
 
-  return checkedAst2
+  -- Generate LLVM AST from the Javalette AST.
+  let llvmAST = LLVM_Gen.convert checkedAst2
+
+  return llvmAST
 
   where
     toEither :: Err Prog -> Either Errors.Error Prog
@@ -80,9 +84,10 @@ main :: IO ()
 main = do
   input <- getInput
   case run input of
-    Right prog -> do
+    Right ast -> do
       hPutStrLn stderr "OK"
-      putStrLn $ PrettyPrinter.prettyPrint 4 prog
+      -- putStrLn $ PrettyPrinter.prettyPrint 4 prog
+      print ast
       exitSuccess
 
     Left err -> do
