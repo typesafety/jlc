@@ -407,10 +407,82 @@ convExpr = \case
         (J.NE,  TNBitInt _) -> Icmp IC_NE
         (J.NE,  TDouble)    -> Fcmp FC_ONE
 
+  -- AND and OR have "lazy" behaviour (skip evaluating 2nd operand
+  -- if unnecessary).
 
-  -- EAnd Expr Expr
-  -- EOr Expr Expr
-  -- AnnExp Expr Type
+  J.EAnd jE1 jE2 -> do
+    (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
+    op2Label <- nextLabel
+    trueLabel <- nextLabel
+    falseLabel <- nextLabel
+    endLabel <- nextLabel
+
+    allocVar <- nextVar
+    let allocate = IAss allocVar $ IMem $ Alloca boolType
+    let chk1 = brCond sid1 op2Label falseLabel
+    let chk2 = brCond sid2 trueLabel falseLabel
+    let storeF = storeBool 0 allocVar
+    let storeT = storeBool 1 allocVar
+    let gotoEnd = brUncond endLabel
+    let loadR = loadBool assId allocVar
+    let output = mconcat
+          [ wrapI allocate
+          , wrapI chk1
+          , wrapL op2Label
+          , wrapI chk2
+          , [ TrL trueLabel
+            , TrI storeT
+            , TrI gotoEnd
+            ]
+          , [ TrL falseLabel
+            , TrI storeF
+            , TrI gotoEnd
+            ]
+          , [ TrL endLabel
+            , TrI loadR
+            ]
+          ]
+
+    bindType assId boolType
+      >> return (output, Just $ SIdent assId)
+
+  J.EOr jE1 jE2 -> do
+    (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
+    op2Label <- nextLabel
+    trueLabel <- nextLabel
+    falseLabel <- nextLabel
+    endLabel <- nextLabel
+
+    allocVar <- nextVar
+    let allocate = IAss allocVar $ IMem $ Alloca boolType
+    let chk1 = brCond sid1 trueLabel op2Label
+    let chk2 = brCond sid2 trueLabel falseLabel
+    let storeF = storeBool 0 allocVar
+    let storeT = storeBool 1 allocVar
+    let gotoEnd = brUncond endLabel
+    let loadR = loadBool assId allocVar
+    let output = mconcat
+          [ wrapI allocate
+          , wrapI chk1
+          , wrapL op2Label
+          , wrapI chk2
+          , [ TrL trueLabel
+            , TrI storeT
+            , TrI gotoEnd
+            ]
+          , [ TrL falseLabel
+            , TrI storeF
+            , TrI gotoEnd
+            ]
+          , [ TrL endLabel
+            , TrI loadR
+            ]
+          ]
+
+    bindType assId boolType
+      >> return (output, Just $ SIdent assId)
+
+  -- J.AnnExp Expr Type
 
   -- ELitInt Integer
   -- ELitDouble Double
@@ -432,6 +504,19 @@ convExpr = \case
       typ <- typeOf sid1
       assId <- nextVar
       return (instrs1, sid1, instrs2, sid2, typ, assId)
+
+    wrapI :: Instruction -> [Translated]
+    wrapI i = [TrI i]
+
+    wrapL :: Label -> [Translated]
+    wrapL l = [TrL l]
+
+    loadBool :: Ident -> Ident -> Instruction
+    loadBool to from = IAss to $ IMem $ Load boolType from
+
+    storeBool :: Int -> Ident -> Instruction
+    storeBool n id =
+      INoAss $ IMem $ Store boolType (SVal $ LInt n) (TPointer boolType) id
 
 
 
