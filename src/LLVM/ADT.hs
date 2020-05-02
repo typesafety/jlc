@@ -138,13 +138,13 @@ data FCond
   | FC_OLE
   | FC_ONE
   | FC_ORD
-  | FC_UEQ
-  | FC_UGT
-  | FC_UGE
-  | FC_ULT
-  | FC_ULE
-  | FC_UNE
-  | FC_UNO
+  -- | FC_UEQ
+  -- | FC_UGT
+  -- | FC_UGE
+  -- | FC_ULT
+  -- | FC_ULE
+  -- | FC_UNE
+  -- | FC_UNO
   | FC_TRUE
   | FC_FALSE
   deriving (Eq, Show)
@@ -152,10 +152,10 @@ data FCond
 data ICond
   = IC_EQ
   | IC_NE
-  | IC_UGT
-  | IC_UGE
-  | IC_ULT
-  | IC_ULE
+  -- | IC_UGT
+  -- | IC_UGE
+  -- | IC_ULT
+  -- | IC_ULE
   | IC_SGT
   | IC_SGE
   | IC_SLT

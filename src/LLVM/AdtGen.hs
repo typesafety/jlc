@@ -368,7 +368,24 @@ convExpr = \case
         (J.Minus, TDouble)    -> Fsub
         (J.Minus, TNBitInt _) -> Sub
 
-  -- J.ERel jE1 jOp jE2 -> do
+  J.ERel jE1 jOp jE2 -> do
+    undefined
+
+    where
+      getOp :: J.RelOp -> Type -> (Type -> Source -> Source -> OtherOp)
+      getOp jOp typ = case (jOp, typ) of
+        (J.LTH, TNBitInt _) -> Icmp IC_SLT
+        (J.LTH, TDouble)    -> Fcmp FC_OLT
+        (J.LE,  TNBitInt _) -> Icmp IC_SLE
+        (J.LE,  TDouble)    -> Fcmp FC_OLE
+        (J.GTH, TNBitInt _) -> Icmp IC_SGT
+        (J.GTH, TDouble)    -> Fcmp FC_OGT
+        (J.GE,  TNBitInt _) -> Icmp IC_SGE
+        (J.GE,  TDouble)    -> Fcmp FC_OGE
+        (J.EQU, TNBitInt _) -> Icmp IC_EQ
+        (J.EQU, TDouble)    -> Fcmp FC_OEQ
+        (J.NE,  TNBitInt _) -> Icmp IC_NE
+        (J.NE,  TDouble)    -> Fcmp FC_ONE
 
 
   -- EAnd Expr Expr
