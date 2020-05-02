@@ -112,12 +112,11 @@ type Convert a = R.ReaderT Env (ST.State St) a
 -- | Some external function definitions that should always be included.
 stdExtFunDefs :: [FunDecl]
 stdExtFunDefs =
-  [ FunDecl i32    (globalId "readInt")     []
-  , FunDecl Double (globalId "readDouble")  []
-  , FunDecl Void   (globalId "printInt")    [Param i32 (localId "n")]
-  , FunDecl Void   (globalId "printDouble") [Param Double (localId "d")]
-  , FunDecl
-      Void (globalId "printString") [Param (TPointer i8) (localId "s")]
+  [ FunDecl i32     (globalId "readInt")    []
+  , FunDecl TDouble (globalId "readDouble") []
+  , FunDecl TVoid (globalId "printInt")    [Param i32 (localId "n")]
+  , FunDecl TVoid (globalId "printDouble") [Param TDouble (localId "d")]
+  , FunDecl TVoid (globalId "printString") [Param (TPointer i8) (localId "s")]
   ]
 
 --
@@ -176,20 +175,20 @@ convStmt = \case
     pure [TrI $ IAss lVar (IMem $ Alloca lType)]
 
   J.Ass jId jExpr -> do
-    (instrs, id) <- second fromJust <$> convExpr jExpr
+    (instrs, sid) <- second fromJust <$> convExpr jExpr
     let storeId = transId Local jId
-    typeOf storeId >>= \case
+    typeOf (SIdent storeId) >>= \case
       pType@(TPointer typ) -> do
-        let storeInstr = INoAss $ IMem $ Store typ (SIdent id) pType storeId
+        let storeInstr = INoAss $ IMem $ Store typ sid pType storeId
         pure . map TrI $ instrs ++ [storeInstr]
 
   J.Ret jExpr -> do
-    (instrs, id) <- second fromJust <$> convExpr jExpr
+    (instrs, sid) <- second fromJust <$> convExpr jExpr
     -- Get the return type of our current fucntion.
     retType <- R.asks (fromJust . view envRetType)
     -- Append a ret instruction to the generated instructions.
     pure . map TrI
-      $ instrs ++ [INoAss $ ITerm $ Ret retType (SIdent id)]
+      $ instrs ++ [INoAss $ ITerm $ Ret retType sid]
 
   J.VRet -> pure [TrI $ INoAss $ ITerm VRet]
 
@@ -202,7 +201,7 @@ convStmt = \case
 
     body <- convStmt jStmt
 
-    let brInstr = brIdCond condId ifLabel endLabel
+    let brInstr = brCond condId ifLabel endLabel
     let brEnd = brUncond endLabel
 
     return $ mconcat
@@ -226,7 +225,7 @@ convStmt = \case
     ifBody <- convStmt jS1
     elseBody <- convStmt jS2
 
-    let brInstr = brIdCond condId ifLabel elseLabel
+    let brInstr = brCond condId ifLabel elseLabel
     let brEnd = brUncond endLabel
 
     return $ mconcat
@@ -253,7 +252,7 @@ convStmt = \case
 
     body <- convStmt jStmt
 
-    let brInstr = brIdCond condId bodyLabel endLabel
+    let brInstr = brCond condId bodyLabel endLabel
     let brStart = brUncond condLabel
 
     return $ mconcat
@@ -273,23 +272,19 @@ convStmt = \case
   -- preprocessing, so we throw an error if encountered.
   stmt -> error $ "genInstrs: Unexpected Javalette stmt:\n" ++ show stmt
 
-  where
-    splitLast :: [a] -> ([a], [a])
-    splitLast xs = splitAt (length xs - 1) xs
-
 {- | Convert a Javalette expression to a series of instructions. Return
-the instructions and the final variable which the result is assigned to,
-if applicable.
+the instructions and the result as a Source (id or variable). Result is
+Nothing if the type of the result was Void.
 -}
-convExpr :: J.Expr -> Convert ([Instruction], Maybe Ident)
+convExpr :: J.Expr -> Convert ([Instruction], Maybe Source)
 convExpr = \case
   J.EVar jId -> do
     let memId = transId Local jId
-    typ <- typeOf memId
+    typ <- typeOf (SIdent memId)
     assId <- nextVar
     let instr = IAss assId $ IMem $ Load typ memId
 
-    bindType assId typ >> return ([instr], Just assId)
+    bindType assId typ >> return ([instr], Just $ SIdent assId)
 
   J.EApp jId jExprs -> do
     let funId = transId Global jId
@@ -300,7 +295,7 @@ convExpr = \case
     let args = zipWith Arg paramTypes (map fromJust argVars)
 
     case retType of
-      Void -> do
+      TVoid -> do
         let callInstr = INoAss $ IOther $ Call retType funId args
         return (concat instrss ++ [callInstr], Nothing)
       _ -> do
@@ -308,29 +303,74 @@ convExpr = \case
         let callInstr = IAss assId $ IOther $ Call retType funId args
 
         bindType assId retType >>
-          return (concat instrss ++ [callInstr], Just assId)
+          return (concat instrss ++ [callInstr], Just $ SIdent assId)
 
   J.EString str -> do
     gId <- addGlobalStr str
-    bindType gId (strType str) >> return ([], Just gId)
+    bindType gId (strType str) >> return ([], Just $ SIdent gId)
 
-  J.Neg jExpr -> do
-    (instrs, id) <- second fromJust <$> convExpr jExpr
-    typ <- typeOf id
+  -- This should be equivalent
+  J.Neg jExpr -> convExpr $ J.EMul (J.ELitInt (-1)) J.Times jExpr
+
+  J.Not jExpr -> do
+    (instrs, sid) <- second fromJust <$> convExpr jExpr
     assId <- nextVar
+    typ <- typeOf sid
 
-    let (op, lit) =
-          case typ of
-            Double     -> (Fmul, LFloat (-1))
-            TNBitInt _ -> (Mul, LInt (-1))
-    let ins = IAss assId $ IArith op typ (SIdent id) (SVal lit)
+    let ins = IAss assId $ IBitWise $ Xor i1 sid (SVal $ LInt 1)
+    bindType assId typ
+      >> return (instrs ++ [ins], Just $ SIdent assId)
 
-    bindType assId typ >> return (instrs ++ [ins], Just assId)
+  J.EMul jE1 jOp jE2 -> do
+    (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
 
-  -- Not Expr
-  -- EMul Expr MulOp Expr
-  -- EAdd Expr AddOp Expr
-  -- ERel Expr RelOp Expr
+    case (jOp, sid1Type) of
+      (J.Times, TNBitInt _) -> do
+        let retType = TDouble
+        fpVar1 <- nextVar
+        fpVar2 <- nextVar
+        let inss = mconcat
+              [ instrs1
+              , instrs2
+              , [IAss fpVar1 $ IOther $ Sitofp sid1Type sid1 retType]
+              , [IAss fpVar2 $ IOther $ Sitofp sid1Type sid2 retType]
+              , [IAss assId
+                $ IArith Fdiv retType (SIdent fpVar1) (SIdent fpVar1)]
+              ]
+        bindType assId retType >> return (inss, Just $ SIdent assId)
+
+      _ -> do
+        let arithOp = getOp jOp sid1Type
+        let ins = IAss assId $ IArith arithOp sid1Type sid1 sid2
+        bindType assId sid1Type
+          >> return (instrs1 ++ instrs2 ++ [ins], Just $ SIdent assId)
+
+        where
+          getOp :: J.MulOp -> Type -> ArithOp
+          getOp jOp typ = case (jOp, typ) of
+            (J.Times, TDouble)     -> Fmul
+            (J.Times, TNBitInt _)  -> Mul
+            (J.Div, TDouble)       -> Fdiv
+            (J.Mod, TNBitInt _)    -> Srem
+
+  J.EAdd jE1 jOp jE2 -> do
+    (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
+    let arithOp = getOp jOp sid1Type
+    let ins = IAss assId $ IArith arithOp sid1Type sid1 sid2
+    bindType assId sid1Type
+      >> return (instrs1 ++ instrs2 ++ [ins], Just $ SIdent assId)
+
+    where
+      getOp :: J.AddOp -> Type -> ArithOp
+      getOp jOp typ = case (jOp, typ) of
+        (J.Plus, TDouble)     -> Fadd
+        (J.Plus, TNBitInt _)  -> Add
+        (J.Minus, TDouble)    -> Fsub
+        (J.Minus, TNBitInt _) -> Sub
+
+  -- J.ERel jE1 jOp jE2 -> do
+
+
   -- EAnd Expr Expr
   -- EOr Expr Expr
   -- AnnExp Expr Type
@@ -339,6 +379,24 @@ convExpr = \case
   -- ELitDouble Double
   -- ELitTrue
   -- ELitFalse
+
+  where
+    -- Performs converting of subexpressions in binary operations, then
+    -- returns the instructions, the variables to which they are assigned,
+    -- the result type of the FIRST instruction, and the variable to save
+    -- the result to.
+    convBinOp
+      :: J.Expr
+      -> J.Expr
+      -> Convert ([Instruction], Source, [Instruction], Source, Type, Ident)
+    convBinOp jE1 jE2 = do
+      (instrs1, sid1) <- second fromJust <$> convExpr jE1
+      (instrs2, sid2) <- second fromJust <$> convExpr jE2
+      typ <- typeOf sid1
+      assId <- nextVar
+      return (instrs1, sid1, instrs2, sid2, typ, assId)
+
+
 
 --
 -- * Functions for translating from Javalette ADT to LLVM ADT.
@@ -353,9 +411,9 @@ transParam (J.Argument jType jId) = Param (transType jType) (transId Local jId)
 transType :: J.Type -> Type
 transType = \case
   J.Int    -> i32
-  J.Double -> Double
+  J.Double -> TDouble
   J.Bool   -> i1
-  J.Void   -> Void
+  J.Void   -> TVoid
   -- Note that this is only usable when setting the type
   -- in function parameters, such as in printString. An actual
   -- string type is of [n x i8]*, that is, an array pointer type.
@@ -364,12 +422,6 @@ transType = \case
 --
 -- * Helper function for LLVM ADT constructors.
 --
-
-{- | Create a conditional branching instruction where the the conditional
-value is a variable.
--}
-brIdCond :: Ident -> Label -> Label -> Instruction
-brIdCond id = brCond (SIdent id)
 
 -- | Create a conditional branching instruction.
 brCond :: Source -> Label -> Label -> Instruction
@@ -429,9 +481,14 @@ bindType id typ = ST.modify $ over stTypes $ add id typ
                   then M.insert i t m
                   else error "bindType: Attempting to insert existing binding"
 
--- | Get the type of a variable.
-typeOf :: Ident -> Convert Type
-typeOf id = (M.! id) <$> ST.gets (view stTypes)
+-- | Get the type of a Source (variable or literal value).
+typeOf :: Source -> Convert Type
+typeOf (SIdent id) = (M.! id) <$> ST.gets (view stTypes)
+typeOf (SVal lit) = return $ case lit of
+  LInt _    -> i32
+  LDouble _ -> TDouble
+  LNull     -> TNull
+  LString s -> strType s
 
 -- | Add a string as a global variable and return its Ident.
 addGlobalStr :: String -> Convert Ident

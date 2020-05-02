@@ -45,19 +45,18 @@ data Scope
 
 data Type
   = TName Ident
-
   -- An int of Int bits, i.e. the parameter indicates the size the integer.
   | TNBitInt Int
   | TLabel Label
   | TFun Type [Type]
   | TPointer Type
   | TStruct [Type]
-
   -- An array of Int length, containing elements of type Type.
   | TArray Int Type
-  | Void
-  | Float
-  | Double
+  | TVoid
+  | TFloat
+  | TDouble
+  | TNull 
   deriving (Eq, Show)
 
 data LinkageType
@@ -89,6 +88,11 @@ data InstrGroup
   | ITerm TermOp
   | IMem MemOp
   | IOther OtherOp
+  | IBitWise BitWiseOp
+  deriving (Eq, Show)
+
+data BitWiseOp
+  = Xor Type Source Source
   deriving (Eq, Show)
 
 data ArithOp
@@ -123,6 +127,7 @@ data OtherOp
   = Icmp ICond Type Source Source
   | Fcmp FCond Type Source Source
   | Call Type Ident [Arg]
+  | Sitofp Type Source Type
   deriving (Eq, Show)
 
 data FCond
@@ -160,12 +165,12 @@ data ICond
 data Param = Param Type Ident
   deriving (Eq, Show)
 
-data Arg = Arg Type Ident
+data Arg = Arg Type Source
   deriving (Eq, Show)
 
 data Lit
   = LInt Int
-  | LFloat Float
+  | LDouble Double
   | LNull
   | LString String
   deriving (Eq, Show)
