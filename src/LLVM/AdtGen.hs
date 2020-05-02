@@ -11,7 +11,7 @@ other preprocessing/optimizations.
 module LLVM.AdtGen where
 
 import Control.Monad (when)
-import Data.Bifunctor (second)
+import Data.Bifunctor (bimap, first, second)
 import Data.Maybe (fromJust)
 import Lens.Micro.Platform
 
@@ -100,6 +100,20 @@ data Translated
   = TrI Instruction
   | TrL Label
 
+isTrI :: Translated -> Bool
+isTrI (TrI _) = True
+isTrI (TrL _) = False
+
+isTrL :: Translated -> Bool
+isTrL (TrI _) = False
+isTrL (TrL _) = True
+
+fromTrI :: Stack.HasCallStack => Translated -> Instruction
+fromTrI (TrI i) = i
+
+fromTrL :: Stack.HasCallStack => Translated -> Label
+fromTrL (TrL l) = l
+
 {- | The monad stack keeps track of function signatures and relevant
 state when traversing the Javalette AST.
 -}
@@ -180,19 +194,18 @@ convStmt = \case
     typeOf (SIdent storeId) >>= \case
       pType@(TPointer typ) -> do
         let storeInstr = INoAss $ IMem $ Store typ sid pType storeId
-        pure . map TrI $ instrs ++ [storeInstr]
+        pure $ instrs ++ map TrI [storeInstr]
 
   J.Ret jExpr -> do
     (instrs, sid) <- second fromJust <$> convExpr jExpr
     -- Get the return type of our current fucntion.
     retType <- R.asks (fromJust . view envRetType)
     -- Append a ret instruction to the generated instructions.
-    pure . map TrI
-      $ instrs ++ [INoAss $ ITerm $ Ret retType sid]
+    pure $ instrs ++ [TrI $ INoAss $ ITerm $ Ret retType sid]
 
   J.VRet -> pure [TrI $ INoAss $ ITerm VRet]
 
-  J.SExp jExpr -> map TrI . fst <$> convExpr jExpr
+  J.SExp jExpr -> fst <$> convExpr jExpr
 
   J.If jExpr jStmt -> do
     (condInstrs, condId) <- second fromJust <$> convExpr jExpr
@@ -206,7 +219,7 @@ convStmt = \case
 
     return $ mconcat
       -- Condition
-      [ map TrI condInstrs
+      [ condInstrs
       , [TrI brInstr]
       -- If
       , [TrL ifLabel]
@@ -230,7 +243,7 @@ convStmt = \case
 
     return $ mconcat
       -- Condition
-      [ map TrI condInstrs
+      [ condInstrs
       , [TrI brInstr]
       -- If
       , [TrL ifLabel]
@@ -258,7 +271,7 @@ convStmt = \case
     return $ mconcat
       -- Condition
       [ [TrL condLabel]
-      , map TrI condInstrs
+      , condInstrs
       , [TrI brInstr]
       -- Body
       , [TrL bodyLabel]
@@ -276,7 +289,7 @@ convStmt = \case
 the instructions and the result as a Source (id or variable). Result is
 Nothing if the type of the result was Void.
 -}
-convExpr :: J.Expr -> Convert ([Instruction], Maybe Source)
+convExpr :: J.Expr -> Convert ([Translated], Maybe Source)
 convExpr = \case
   J.EVar jId -> do
     let memId = transId Local jId
@@ -284,7 +297,7 @@ convExpr = \case
     assId <- nextVar
     let instr = IAss assId $ IMem $ Load typ memId
 
-    bindType assId typ >> return ([instr], Just $ SIdent assId)
+    bindType assId typ >> return ([TrI instr], Just $ SIdent assId)
 
   J.EApp jId jExprs -> do
     let funId = transId Global jId
@@ -297,13 +310,13 @@ convExpr = \case
     case retType of
       TVoid -> do
         let callInstr = INoAss $ IOther $ Call retType funId args
-        return (concat instrss ++ [callInstr], Nothing)
+        return (concat instrss ++ [TrI callInstr], Nothing)
       _ -> do
         assId <- nextVar
         let callInstr = IAss assId $ IOther $ Call retType funId args
 
         bindType assId retType >>
-          return (concat instrss ++ [callInstr], Just $ SIdent assId)
+          return (concat instrss ++ [TrI callInstr], Just $ SIdent assId)
 
   J.EString str -> do
     gId <- addGlobalStr str
@@ -319,7 +332,7 @@ convExpr = \case
 
     let ins = IAss assId $ IBitWise $ Xor i1 sid (SVal $ LInt 1)
     bindType assId typ
-      >> return (instrs ++ [ins], Just $ SIdent assId)
+      >> return (instrs ++ [TrI ins], Just $ SIdent assId)
 
   J.EMul jE1 jOp jE2 -> do
     (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
@@ -332,18 +345,20 @@ convExpr = \case
         let inss = mconcat
               [ instrs1
               , instrs2
-              , [IAss fpVar1 $ IOther $ Sitofp sid1Type sid1 retType]
-              , [IAss fpVar2 $ IOther $ Sitofp sid1Type sid2 retType]
-              , [IAss assId
-                $ IArith Fdiv retType (SIdent fpVar1) (SIdent fpVar1)]
+              , map TrI
+                [ IAss fpVar1 $ IOther $ Sitofp sid1Type sid1 retType
+                , IAss fpVar2 $ IOther $ Sitofp sid1Type sid2 retType
+                , IAss assId
+                  $ IArith Fdiv retType (SIdent fpVar1) (SIdent fpVar1)
+                ]
               ]
         bindType assId retType >> return (inss, Just $ SIdent assId)
 
       _ -> do
         let arithOp = getOp jOp sid1Type
-        let ins = IAss assId $ IArith arithOp sid1Type sid1 sid2
+        let ins     = IAss assId $ IArith arithOp sid1Type sid1 sid2
         bindType assId sid1Type
-          >> return (instrs1 ++ instrs2 ++ [ins], Just $ SIdent assId)
+          >> return (instrs1 ++ instrs2 ++ [TrI ins], Just $ SIdent assId)
 
         where
           getOp :: J.MulOp -> Type -> ArithOp
@@ -358,7 +373,7 @@ convExpr = \case
     let arithOp = getOp jOp sid1Type
     let ins = IAss assId $ IArith arithOp sid1Type sid1 sid2
     bindType assId sid1Type
-      >> return (instrs1 ++ instrs2 ++ [ins], Just $ SIdent assId)
+      >> return (instrs1 ++ instrs2 ++ [TrI ins], Just $ SIdent assId)
 
     where
       getOp :: J.AddOp -> Type -> ArithOp
@@ -405,7 +420,7 @@ convExpr = \case
     convBinOp
       :: J.Expr
       -> J.Expr
-      -> Convert ([Instruction], Source, [Instruction], Source, Type, Ident)
+      -> Convert ([Translated], Source, [Translated], Source, Type, Ident)
     convBinOp jE1 jE2 = do
       (instrs1, sid1) <- second fromJust <$> convExpr jE1
       (instrs2, sid2) <- second fromJust <$> convExpr jE2
