@@ -142,29 +142,37 @@ convert p
   = ST.evalState (R.runReaderT (convProg p) initEnv) initSt
 
 convProg :: J.Prog -> Convert LLVM
-convProg = undefined
+convProg (J.Program topDefs) =
+  R.local (over envSigs $ M.union progDecls) $ do
+    undefined
+  
+  where
+    progDecls :: Signatures
+    progDecls = M.fromList $ zip (map getId decls) decls
+      where
+        decls :: [FunDecl]
+        decls = map getFunDecl topDefs
 
--- convTopDefs :: [J.TopDef] -> Convert ()
--- convTopDefs [] = return ()
--- convTopDefs (topDef : ts) = do
---   ll <- convTopDef topDef
---   W.tell ll
---   convTopDefs ts
+        getId :: FunDecl -> Ident
+        getId (FunDecl _ id _) = id
+
+-- | Get the LLVM function definition from a JL TopDef construct.
+getFunDecl :: J.TopDef -> FunDecl
+getFunDecl (J.FnDef jType jId jArgs jBlk) =
+  let retType = transType jType
+      funId   = transId Global jId
+      params  = map transParam jArgs
+  in FunDecl retType funId params
 
 convTopDef :: J.TopDef -> Convert FunDef
 convTopDef (J.FnDef jType jId jArgs (J.Block stmts)) = do
-  -- Functions have global scope (for now, at least)
-  let retType = transType jType
-  let id      = transId Global jId
-  let params  = map transParam jArgs
-
-  blocks <- convBody stmts
-  return $ FunDef retType id params blocks
-
-
-convBody :: [J.Stmt] -> Convert [BasicBlock]
-convBody stmts = do
   undefined
+  -- Functions have global scope (for now, at least)
+  -- let retType = transType jType
+  -- let id      = transId Global jId
+  -- let params  = map transParam jArgs
+
+  -- return $ FunDef retType id params blocks
 
 {- | Convert a JL statment into a list of LLVM instructions and labels.
 The ordering of the list conserves the semantics of the input program.
@@ -587,10 +595,6 @@ strType :: String -> Type
 strType str = TPointer $ TArray (length str) i8
 
 --
--- * Environment-related helper functions.
---
-
---
 -- * State-related helper functions.
 --
 
@@ -709,7 +713,3 @@ globalBase = "gvar"
 
 labelBase :: String
 labelBase = "label"
-
---
--- * Various helper functions.
---
