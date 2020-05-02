@@ -482,12 +482,14 @@ convExpr = \case
     bindType assId boolType
       >> return (output, Just $ SIdent assId)
 
-  -- J.AnnExp Expr Type
+  J.ELitInt n    -> return ([], Just $ SVal $ LInt $ fromIntegral n)
+  J.ELitDouble d -> return ([], Just $ SVal $ LDouble d)
+  J.ELitTrue     -> return ([], Just $ SVal $ LInt 1)
+  J.ELitFalse    -> return ([], Just $ SVal $ LInt 0)
 
-  -- ELitInt Integer
-  -- ELitDouble Double
-  -- ELitTrue
-  -- ELitFalse
+  -- Forgot that we annotated during type checking...
+  -- TODO: rewrite code to make use of type annotation.
+  J.AnnExp jExpr jType -> convExpr jExpr
 
   where
     -- Performs converting of subexpressions in binary operations, then
