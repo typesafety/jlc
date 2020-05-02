@@ -104,15 +104,9 @@ isTrI :: Translated -> Bool
 isTrI (TrI _) = True
 isTrI (TrL _) = False
 
-isTrL :: Translated -> Bool
-isTrL (TrI _) = False
-isTrL (TrL _) = True
-
 fromTrI :: Stack.HasCallStack => Translated -> Instruction
 fromTrI (TrI i) = i
-
-fromTrL :: Stack.HasCallStack => Translated -> Label
-fromTrL (TrL l) = l
+fromTrI (TrL _) = error "fromTrI: TrL"
 
 {- | The monad stack keeps track of function signatures and relevant
 state when traversing the Javalette AST.
@@ -165,19 +159,38 @@ getFunDecl (J.FnDef jType jId jArgs jBlk) =
   in FunDecl retType funId params
 
 convTopDef :: J.TopDef -> Convert FunDef
-convTopDef (J.FnDef jType jId jArgs (J.Block stmts)) = do
-  undefined
-  -- Functions have global scope (for now, at least)
-  -- let retType = transType jType
-  -- let id      = transId Global jId
-  -- let params  = map transParam jArgs
+convTopDef (J.FnDef jType jId jArgs jBlk) = do
+  let funId = transId Global jId
+  FunDecl t i ps <- fromJust . M.lookup funId <$> R.asks (view envSigs)
 
-  -- return $ FunDef retType id params blocks
+  basicBlks <- convBlk jBlk
+
+  return $ FunDef t i ps basicBlks
+
+convBlk :: J.Blk -> Convert [BasicBlock]
+convBlk (J.Block stmts) =
+  buildBlocks . (TrL (Label "entry") :) . concat <$> mapM convStmt stmts
+
+{- | Given a list of labels and instructions, divide the instructions
+into blocks at each label.
+-}
+buildBlocks :: Stack.HasCallStack => [Translated] -> [BasicBlock]
+buildBlocks [] = []
+buildBlocks (TrI _ : xs) =
+  error "buildBlocks: encountered non-enclosed instruction"
+buildBlocks (TrL l : xs) = BasicBlock l instructions : rest
+  where
+    (instructions, rest) = case first (map fromTrI) . span isTrI $ xs of
+      ([], remaining) -> ([unreachable], buildBlocks remaining)
+      (xs, remaining) -> (xs,            buildBlocks remaining)
+
+    unreachable :: Instruction
+    unreachable = INoAss $ ITerm $ Unreachable
 
 {- | Convert a JL statment into a list of LLVM instructions and labels.
 The ordering of the list conserves the semantics of the input program.
 -}
-convStmt :: J.Stmt -> Convert [Translated]
+convStmt :: Stack.HasCallStack => J.Stmt -> Convert [Translated]
 convStmt = \case
   J.Empty -> pure []
 
@@ -297,7 +310,10 @@ convStmt = \case
 the instructions and the result as a Source (id or variable). Result is
 Nothing if the type of the result was Void.
 -}
-convExpr :: J.Expr -> Convert ([Translated], Maybe Source)
+convExpr
+  :: Stack.HasCallStack
+  => J.Expr
+  -> Convert ([Translated], Maybe Source)
 convExpr = \case
   J.EVar jId -> do
     let memId = transId Local jId

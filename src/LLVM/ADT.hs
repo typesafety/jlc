@@ -31,7 +31,7 @@ data FunDecl = FunDecl
 data FunDef = FunDef
   Type          -- ^ Return type
   Ident         -- ^ Function name
-  [Param]         -- ^ Parameters
+  [Param]       -- ^ Parameters
   [BasicBlock]  -- ^ Function body
   deriving (Eq, Show)
 
@@ -114,6 +114,7 @@ data TermOp
   | VRet
   | BrCond Source Label Label
   | Br Label
+  | Unreachable
   deriving (Eq, Show)
 
 data MemOp
