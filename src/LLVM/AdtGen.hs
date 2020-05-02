@@ -4,22 +4,31 @@
 
 {- | Module for converting an annotated Javalette AST to an
 LLVM AST. This is expected to run after type checking and
-other preprocessing/optimizations.
+other preprocessing/optimizations, such as desugaring.
+
+-- TODO: Currently does not make use of the type annotations from
+--       the type checking phase! Code could probably be vastly simplified
+--       with a bit of rewriting.
+-- TODO: Currently there is a lot of manual concatenation of Translated
+--       objects throughout convExpr. This could probably be abstracted
+--       away by using Writer.
+-- TODO: Currently the carried State is quite spread out and messy, could
+--       possibly be simplified?
+-- TODO: (Goes for other modules as well) Errors thrown here should be
+--       considered compiler errors; could possibly be propagated upwards
+--       and handled more properly (rather than just an error and
+--       short stack trace)
 -}
 
--- TODO: Explicit export list
-module LLVM.AdtGen where
-  -- ( convert
-  -- ) where
+module LLVM.AdtGen
+       ( convert
+       ) where
 
-import Control.Monad (when)
-import Data.Bifunctor (bimap, first, second)
-import Data.Maybe (fromJust)
+import Data.Bifunctor (first, second)
 import Lens.Micro.Platform
 
 import qualified Control.Monad.Reader as R
 import qualified Control.Monad.State.Strict as ST
-import qualified Control.Monad.Writer.Strict as W
 import qualified Data.Map.Strict as M
 import qualified GHC.Stack as Stack
 
@@ -101,6 +110,7 @@ is easier to generate while traversing the Javalette AST.
 data Translated
   = TrI Instruction
   | TrL Label
+  deriving (Show)
 
 isTrI :: Translated -> Bool
 isTrI (TrI _) = True
@@ -133,6 +143,7 @@ stdExtFunDefs =
 -- * LLVM Generation.
 --
 
+-- | Convert a Javalette AST to a LLVM AST.
 convert :: J.Prog -> LLVM
 convert p
   = ST.evalState (R.runReaderT (convProg p) initEnv) initSt
@@ -178,7 +189,9 @@ convTopDef (J.FnDef jType jId jArgs jBlk) = do
   let funId = transId Global jId
   FunDecl t i ps <- fromJust . M.lookup funId <$> R.asks (view envSigs)
 
-  basicBlks <- convBlk jBlk
+  -- Set the function's return type in the environment. 
+
+  basicBlks <- R.local (set envRetType $ Just $ transType jType) $ convBlk jBlk
 
   return $ FunDef t i ps basicBlks
 
@@ -200,13 +213,13 @@ buildBlocks (TrL l : xs) = BasicBlock l instructions : rest
       (xs, remaining) -> (xs,            buildBlocks remaining)
 
     unreachable :: Instruction
-    unreachable = INoAss $ ITerm $ Unreachable
+    unreachable = INoAss $ ITerm Unreachable
 
 {- | Convert a JL statment into a list of LLVM instructions and labels.
 The ordering of the list conserves the semantics of the input program.
 -}
 convStmt :: Stack.HasCallStack => J.Stmt -> Convert [Translated]
-convStmt = \case
+convStmt s = case s of
   J.Empty -> pure []
 
   -- Because we have done alpha-renaming, we don't need to worry
@@ -329,7 +342,7 @@ convExpr
   :: Stack.HasCallStack
   => J.Expr
   -> Convert ([Translated], Maybe Source)
-convExpr = \case
+convExpr e = case e of
   J.EVar jId -> do
     let memId = transId Local jId
     typ <- typeOf (SIdent memId)
@@ -448,6 +461,7 @@ convExpr = \case
 
   -- AND and OR have "lazy" behaviour (skip evaluating 2nd operand
   -- if unnecessary).
+  -- TODO: EAnd/EOr are very similar; generalize?
 
   J.EAnd jE1 jE2 -> do
     (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
@@ -744,3 +758,11 @@ globalBase = "gvar"
 
 labelBase :: String
 labelBase = "label"
+
+--
+-- * Other helper functions
+--
+
+fromJust :: Stack.HasCallStack => Maybe a -> a
+fromJust Nothing  = error "fromJust: Nothing"
+fromJust (Just a) = a
