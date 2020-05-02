@@ -9,6 +9,8 @@ other preprocessing/optimizations.
 
 -- TODO: Explicit export list
 module LLVM.AdtGen where
+  -- ( convert
+  -- ) where
 
 import Control.Monad (when)
 import Data.Bifunctor (bimap, first, second)
@@ -137,10 +139,23 @@ convert p
 
 convProg :: J.Prog -> Convert LLVM
 convProg (J.Program topDefs) =
+  -- Add the function signatures from the JL definitions.
   R.local (over envSigs $ M.union progDecls) $ do
-    undefined
-  
+    funDefs <- mapM convTopDef topDefs -- TODO: RESET CERTAIN STATE AFTER EACH DEF
+    varDefs <- map toVarDef . M.toList <$> ST.gets (view stGlobalVars)
+    let funDecls = stdExtFunDefs
+    return $ LLVM 
+      { llvmTypeDefs = []  -- Not implemented for now.
+      , llvmVarDefs  = varDefs
+      , llvmFunDefs  = funDefs
+      , llvmFunDecls = funDecls
+      }
+
   where
+    toVarDef :: (GlobalVar, StringLit) -> VarDef
+    toVarDef (GlobalVar id, StringLit str) =
+      VarDef id (strType str) (SVal $ LString str)
+
     progDecls :: Signatures
     progDecls = M.fromList $ zip (map getId decls) decls
       where
