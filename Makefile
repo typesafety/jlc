@@ -18,6 +18,11 @@ grammar:
 submissionA:
 	tar -czf partA-999.tar.gz doc lib src jlc.cabal Makefile
 
+testB:
+	tar -czf tester/partB-999.tar.gz doc lib src jlc.cabal Makefile
+	cd tester && python3 testing.py partB-999.tar.gz \
+		--archive --llvm
+
 clean:
 	-rm ./jlc
 	-rm -r $(SRCDIR)/Javalette/Doc.txt
