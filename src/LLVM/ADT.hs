@@ -25,7 +25,7 @@ instance Monoid LLVM where
 data FunDecl = FunDecl
   Type   -- ^ Return type
   Ident  -- ^ Function Name
-  [Param]  -- ^ Parameters
+  [Type]  -- ^ Parameters
   deriving (Eq, Show)
 
 data FunDef = FunDef
@@ -56,7 +56,7 @@ data Type
   | TVoid
   | TFloat
   | TDouble
-  | TNull 
+  | TNull
   deriving (Eq, Show)
 
 data LinkageType

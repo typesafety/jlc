@@ -132,11 +132,11 @@ type Convert a = R.ReaderT Env (ST.State St) a
 -- | Some external function definitions that should always be included.
 stdExtFunDefs :: [FunDecl]
 stdExtFunDefs =
-  [ FunDecl i32     (globalId "readInt")    []
-  , FunDecl TDouble (globalId "readDouble") []
-  , FunDecl TVoid (globalId "printInt")    [Param i32 (localId "n")]
-  , FunDecl TVoid (globalId "printDouble") [Param TDouble (localId "d")]
-  , FunDecl TVoid (globalId "printString") [Param (TPointer i8) (localId "s")]
+  [ FunDecl i32     (globalId "readInt")     []
+  , FunDecl TDouble (globalId "readDouble")  []
+  , FunDecl TVoid   (globalId "printInt")    [i32]
+  , FunDecl TVoid   (globalId "printDouble") [TDouble]
+  , FunDecl TVoid   (globalId "printString") [TPointer i8]
   ]
 
 --
@@ -181,19 +181,20 @@ getFunDecl :: J.TopDef -> FunDecl
 getFunDecl (J.FnDef jType jId jArgs jBlk) =
   let retType = transType jType
       funId   = transId Global jId
-      params  = map transParam jArgs
-  in FunDecl retType funId params
+      pTypes  = map (\ (J.Argument t _) -> transType t) jArgs
+  in FunDecl retType funId pTypes
 
 convTopDef :: J.TopDef -> Convert FunDef
 convTopDef (J.FnDef jType jId jArgs jBlk) = do
-  let funId = transId Global jId
-  FunDecl t i ps <- fromJust . M.lookup funId <$> R.asks (view envSigs)
+  let retType = transType jType
+  let funId   = transId Global jId
+  let params  = map transParam jArgs
 
   -- Set the function's return type in the environment. 
 
   basicBlks <- R.local (set envRetType $ Just $ transType jType) $ convBlk jBlk
 
-  return $ FunDef t i ps basicBlks
+  return $ FunDef retType funId params basicBlks
 
 convBlk :: J.Blk -> Convert [BasicBlock]
 convBlk (J.Block stmts) =
@@ -353,10 +354,9 @@ convExpr e = case e of
 
   J.EApp jId jExprs -> do
     let funId = transId Global jId
-    (retType, params) <- lookupFun funId
+    (retType, paramTypes) <- lookupFun funId
     (instrss, argVars) <- unzip <$> mapM convExpr jExprs
 
-    let paramTypes = map (\ (Param t _) -> t) params
     let args = zipWith Arg paramTypes (map fromJust argVars)
 
     case retType of
@@ -644,9 +644,9 @@ strType str = TPointer $ TArray (length str) i8
 --
 
 -- Given a function ID, return its return type and parameters.
-lookupFun :: Stack.HasCallStack => Ident -> Convert (Type, [Param])
+lookupFun :: Stack.HasCallStack => Ident -> Convert (Type, [Type])
 lookupFun id = fromJust . M.lookup id <$> R.asks (view envSigs) >>= \case
-  FunDecl retType _ params -> return (retType, params)
+  FunDecl retType _ pTypes -> return (retType, pTypes)
 
 -- | Set the type for a variable.
 bindType :: Stack.HasCallStack => Ident -> Type -> Convert ()

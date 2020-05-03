@@ -27,7 +27,7 @@ emitLLVM (LLVM typeDefs varDefs funDefs funDecls) = do
   mapM_ emitFunDef funDefs
 
 emitVarDef :: VarDef -> Emit ()
-emitVarDef = undefined
+emitVarDef (VarDef id typ source) = undefined
 
 emitFunDecl :: FunDecl -> Emit ()
 emitFunDecl = undefined
