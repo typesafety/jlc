@@ -31,7 +31,7 @@ executable jlc
                      , Javalette.Par
                      , LLVM.ADT
                      , LLVM.AdtGen
-                     , LLVM.CodeGenerator
+                     , LLVM.Emit
   -- other-extensions:
   build-depends:       base >=4.12 && <4.13
                      , array
