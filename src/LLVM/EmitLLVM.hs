@@ -60,7 +60,15 @@ instance EmitLLVM Param where
   emit (Param typ id) = emit typ ++ " " ++ emit id
 
 instance EmitLLVM Source where
-  emit = undefined
+  emit (SIdent id) = emit id
+  emit (SVal lit)  = emit lit
+
+instance EmitLLVM Lit where
+  emit = \case
+    LInt n      -> show n
+    LDouble d   -> show d
+    LString str -> mconcat ["c", "\""]
+    -- LNull  Unused?
 
 instance EmitLLVM Ident where
   emit (Ident scope name) = emit scope ++ name
@@ -148,13 +156,11 @@ instance EmitLLVM BitwiseOp where
       [ "xor ", emit typ, " ", emit s1, ", ", emit s2 ]
 
 instance EmitLLVM ICond where
-  -- Drop the "IC_" part and make the rest lowercase; a bit fragile,
-  -- replace with something more robust from Data.List.Split once
-  -- hackage comes back online.
-  emit = map toLower . drop 3 . show
+  -- Drop the "IC_" part and make the rest lowercase.
+  emit = map toLower . snd . divideOn '_' . show
 
 instance EmitLLVM FCond where
-  emit = map toLower . drop 3 . show
+  emit = map toLower . snd . divideOn '_' . show
 
 --
 -- * Helper functions
@@ -165,3 +171,12 @@ newlineSep = intercalate "\n" . map emit
 
 commaSep :: EmitLLVM a => [a] -> String
 commaSep = intercalate ", " . map emit
+
+divideOn :: Eq a => a -> [a] -> ([a], [a])
+divideOn mark xs = divide' mark ([], xs)
+  where
+    divide' :: Eq a => a -> ([a], [a]) -> ([a], [a])
+    divide' _ t@(l, []) = t
+    divide' mark (l, r : rs)
+      | r == mark = (l, rs)
+      | otherwise = divide' mark (l ++ [r], rs)
