@@ -367,6 +367,27 @@ convExpr e = case e of
 
   -- TODO: Need to treat printString as a special case, as it
   --       requires getelementptr for type correctness
+
+  -- Hardcoded for the printString case. In case the language gets
+  -- extended with other functions with pointer parameters, this
+  -- should be genrealaized.
+  J.EApp jId@(J.Ident "printString") [jExpr] -> do
+    (is, arrPtrV) <- second fromJust <$> convExpr jExpr
+    -- arrPtrV is a variable of type [n x i8]*
+    t <- typeOf arrPtrV
+    let (TPointer arrType) = t
+    let funId = transId Global jId
+
+    strStartPtr <- nextVar
+    -- Lots of hard-coded stuff here currently.
+    let insArgs = [(t, arrPtrV), (i32, sLitN 0), (i32, sLitN 0)]
+    let getPtrInstr = IAss strStartPtr $ IMem $ GetElementPtr arrType insArgs
+    let funArgs = [Arg (TPointer i8) (SIdent strStartPtr)]
+    let callInstr = INoAss $ IOther $ Call TVoid funId funArgs
+
+    return (is ++ map TrI [getPtrInstr, callInstr], Nothing)
+
+
   J.EApp jId jExprs -> do
     let funId = transId Global jId
     (retType, paramTypes) <- lookupFun funId
@@ -588,6 +609,9 @@ i8 = iBit 8
 
 i1 :: Type
 i1 = iBit 1
+
+sLitN :: Int -> Source
+sLitN n = SVal $ LInt n
 
 boolType :: Type
 boolType = i1
