@@ -120,7 +120,7 @@ instance EmitLLVM TermOp where
     VRet -> "ret"
     BrCond source l1 l2 -> mconcat
       [ "br i1 ", emit source, ", label %", emit l1, ", label %", emit l2 ]
-    Br label -> "br %" ++ emit label
+    Br label -> "br label %" ++ emit label
     Unreachable -> "unreachable"
 
 instance EmitLLVM MemOp where
