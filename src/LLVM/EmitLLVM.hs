@@ -69,6 +69,9 @@ instance EmitLLVM Scope where
   emit Global = "@"
   emit Local = "%"
 
+instance EmitLLVM Arg where
+  emit (Arg typ src) = emit typ ++ " " ++ emit src
+
 instance EmitLLVM Type where
   emit = \case
     TNBitInt n   -> 'i' : show n
@@ -143,6 +146,15 @@ instance EmitLLVM BitwiseOp where
   emit = \case
     Xor typ s1 s2 -> mconcat
       [ "xor ", emit typ, " ", emit s1, ", ", emit s2 ]
+
+instance EmitLLVM ICond where
+  -- Drop the "IC_" part and make the rest lowercase; a bit fragile,
+  -- replace with something more robust from Data.List.Split once
+  -- hackage comes back online.
+  emit = map toLower . drop 3 . show
+
+instance EmitLLVM FCond where
+  emit = map toLower . drop 3 . show
 
 --
 -- * Helper functions
