@@ -121,7 +121,7 @@ data MemOp
   = Alloca Type
   | Load Type Type Ident
   | Store Type Source Type Ident
-  | GetElementPtr Type [Type]
+  | GetElementPtr Type [(Type, Source)]
   deriving (Eq, Show)
 
 -- These should probably be separated into different types if more
