@@ -87,6 +87,7 @@ main = do
   case run input of
     Right ast -> do
       hPutStrLn stderr "OK"
+      -- hPrint stderr ast
       putStrLn $ LLVM.Emit.emit ast
       exitSuccess
 
@@ -94,3 +95,10 @@ main = do
       hPutStrLn stderr "ERROR"
       hPrint stderr err
       exitFailure
+
+test fp = do
+  str <- readFile fp
+  case run str of
+    Right ast -> do
+      print ast
+      writeFile "testout.hs" $ show ast

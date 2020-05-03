@@ -163,9 +163,16 @@ convProg (J.Program topDefs) =
       }
 
   where
+    -- Only supports string literals.
     toVarDef :: (GlobalVar, StringLit) -> VarDef
     toVarDef (GlobalVar id, StringLit str) =
-      VarDef id (strType str) (SVal $ LString str)
+      VarDef id strConstType (SVal $ LString str)
+      where
+        -- String variables have type [n x i8]*, here we write [n x i8]
+        -- though, since it's the type of the actual string constant.
+        strConstType :: Type
+        strConstType = TArray (length str) i8
+
 
     progDecls :: Signatures
     progDecls = M.fromList $ zip (map getId decls) decls
@@ -396,7 +403,7 @@ convExpr e = case e of
     (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
 
     case (jOp, sid1Type) of
-      (J.Times, TNBitInt _) -> do
+      (J.Times, TDouble) -> do
         let retType = TDouble
         fpVar1 <- nextVar
         fpVar2 <- nextVar
@@ -591,16 +598,13 @@ transId scope (J.Ident str) = Ident scope str
 transParam :: J.Arg -> Param
 transParam (J.Argument jType jId) = Param (transType jType) (transId Local jId)
 
-transType :: J.Type -> Type
+transType :: Stack.HasCallStack => J.Type -> Type
 transType = \case
   J.Int    -> i32
   J.Double -> TDouble
   J.Bool   -> boolType
   J.Void   -> TVoid
-  -- Note that this is only usable when setting the type
-  -- in function parameters, such as in printString. An actual
-  -- string type is of [n x i8]*, that is, an array pointer type.
-  J.Str    -> TPointer i8
+  J.Str    -> error "String type needs special care"
 
 --
 -- * Helper function for LLVM ADT constructors.

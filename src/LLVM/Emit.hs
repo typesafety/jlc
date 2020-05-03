@@ -69,7 +69,7 @@ instance EmitLLVM Lit where
   emit = \case
     LInt n      -> show n
     LDouble d   -> show d
-    LString str -> mconcat ["c", "\""]
+    LString str -> mconcat ["c\"", str, "\""]
     -- LNull  Unused?
 
 instance EmitLLVM Ident where
@@ -105,7 +105,7 @@ instance EmitLLVM Instruction where
 instance EmitLLVM InstrGroup where
   emit = \case
     IArith arithOp typ s1 s2 -> mconcat
-      [ emit arithOp, " ", emit typ, ", ", emit s1, " ", emit s2 ]
+      [ emit arithOp, " ", emit typ, " ", emit s1, ", ", emit s2 ]
     ITerm termOp       -> emit termOp
     IMem memOp         -> emit memOp
     IOther otherOp     -> emit otherOp
@@ -120,7 +120,7 @@ instance EmitLLVM TermOp where
     VRet -> "ret"
     BrCond source l1 l2 -> mconcat
       [ "br ", emit source, " %", emit l1, " %", emit l2 ]
-    Br label -> "br " ++ emit label
+    Br label -> "br %" ++ emit label
     Unreachable -> "unreachable"
 
 instance EmitLLVM MemOp where
