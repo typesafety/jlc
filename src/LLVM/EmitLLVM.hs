@@ -117,25 +117,32 @@ instance EmitLLVM MemOp where
       [ "load ", emit valType, ", ", emit ptrType, " ", emit id ]
     Store valType source ptrType id -> mconcat
       [ "store "
-      , emit valType, " ", emit source ", "
+      , emit valType, " ", emit source, ", "
       , emit ptrType, " ", emit id
       ]
     GetElementPtr typ args -> mconcat
-      [ "getelementptr ", emit typ, ", ", commaSep $ map emitArg args ]
+      [ "getelementptr ", emit typ, ", ", intercalate ", " $ map emit2 args ]
       where
-        emitArg :: (Type, Source) -> String
-        emitArg (typ, src) = emit typ ++ " " ++ emit src
+        emit2 :: (Type, Source) -> String
+        emit2 (typ, src) = emit typ ++ " " ++ emit src
 
 instance EmitLLVM OtherOp where
-  emit = undefined
-    -- Icmp iCond typ s1 s2 -> 
-    -- Fcmp FCond Type Source Source
-    -- Call Type Ident [Arg]
-    -- Sitofp Type Source Type
-    -- Zext Type Source Type
+  emit = \case
+    Icmp iCond typ s1 s2 -> mconcat
+      [ "icmp ", emit iCond, " ", emit typ, " ", emit s1, ", ", emit s2 ]
+    Fcmp fCond typ s1 s2 -> mconcat
+      [ "fcmp ", emit fCond, " ", emit typ, " ", emit s1, ", ", emit s2 ]
+    Call retType id args -> mconcat
+      [ "call ", emit retType, " ", emit id, "(", commaSep args, ")" ]
+    Sitofp fromT src toT -> unwords
+      [ "sitofp", emit fromT, emit src, "to", emit toT ]
+    Zext fromT src toT -> unwords
+      [ "zext", emit fromT, emit src, "to", emit toT ]
 
 instance EmitLLVM BitwiseOp where
-  emit = undefined
+  emit = \case
+    Xor typ s1 s2 -> mconcat
+      [ "xor ", emit typ, " ", emit s1, ", ", emit s2 ]
 
 --
 -- * Helper functions
