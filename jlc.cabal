@@ -32,7 +32,6 @@ executable jlc
                      , LLVM.ADT
                      , LLVM.AdtGen
                      , LLVM.Emit
-                     , LLVM.EmitLLVM
   -- other-extensions:
   build-depends:       base >=4.12 && <4.13
                      , array

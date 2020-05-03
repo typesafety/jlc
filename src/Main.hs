@@ -20,6 +20,7 @@ import qualified Frontend.PrettyPrinter as PrettyPrinter
 import qualified Frontend.TypeChecker as TypeChecker
 import qualified LLVM.ADT as LLVM_ADT
 import qualified LLVM.AdtGen as LLVM_Gen
+import qualified LLVM.Emit as LLVM_Emit
 
 run :: String -> Either Errors.Error LLVM_ADT.LLVM
 run code = do
@@ -67,6 +68,15 @@ run code = do
       , "The Error thrown was:\n"
       , show err
       ]
+
+-- | The IO section of the program; emit a string for the LLVM module
+-- write it to a file, then perform assembling, optimizing, linking etc.
+output :: LLVM_ADT.LLVM -> IO ()
+output ast = do
+  let str = LLVM_Emit.emit ast
+  putStrLn str
+  -- TODO:
+  return ()
 
 -- | Read input from a given file name, or from stdin
 -- if no file name is given.
