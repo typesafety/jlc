@@ -328,8 +328,11 @@ convStmt s = case s of
     let brStart = brUncond condLabel
 
     return $ mconcat
+      -- Need to add a branch instruction to get from the previous
+      -- basic block to here, due to no falling through blocks.
+      [ [TrI $ INoAss $ ITerm $ Br condLabel]
       -- Condition
-      [ [TrL condLabel]
+      , [TrL condLabel]
       , condInstrs
       , [TrI brInstr]
       -- Body
