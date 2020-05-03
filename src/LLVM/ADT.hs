@@ -119,7 +119,7 @@ data TermOp
 
 data MemOp
   = Alloca Type
-  | Load Type Ident
+  | Load Type Type Ident
   | Store Type Source Type Ident
   | GetElementPtr Type [Type]
   deriving (Eq, Show)

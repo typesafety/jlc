@@ -346,11 +346,15 @@ convExpr
 convExpr e = case e of
   J.EVar jId -> do
     let memId = transId Local jId
-    typ <- typeOf (SIdent memId)
-    assId <- nextVar
-    let instr = IAss assId $ IMem $ Load typ memId
+    ptrType <- typeOf $ SIdent memId
+    let valType = case ptrType of
+          TPointer typ -> typ
+          _ -> error "convExpr: Load from non-pointer type"
 
-    bindType assId typ >> return ([TrI instr], Just $ SIdent assId)
+    assId <- nextVar
+    let instr = IAss assId $ IMem $ Load valType ptrType memId
+
+    bindType assId valType >> return ([TrI instr], Just $ SIdent assId)
 
   J.EApp jId jExprs -> do
     let funId = transId Global jId
@@ -567,7 +571,7 @@ convExpr e = case e of
     wrapL l = [TrL l]
 
     loadBool :: Ident -> Ident -> Instruction
-    loadBool to from = IAss to $ IMem $ Load boolType from
+    loadBool to from = IAss to $ IMem $ Load boolType (TPointer boolType) from
 
     storeBool :: Int -> Ident -> Instruction
     storeBool n id =
