@@ -45,7 +45,7 @@ run code = do
   let desugaredAst = Desugar.desugar alphaRenamedAst
 
   -- Optimize the AST simplifiying and rewriting some constructs.
-  let optimizedAst = OptimizeAST.optimizeAst desugaredAst
+  let optimizedAst = desugaredAst -- OptimizeAST.optimizeAst desugaredAst
 
   -- Type check again and annotate. A type error here indeicates
   -- a bug in the compiler, not a user error.
@@ -100,5 +100,7 @@ test fp = do
   str <- readFile fp
   case run str of
     Right ast -> do
-      print ast
-      writeFile "testout.hs" $ show ast
+      putStrLn "OK"
+      putStrLn $ LLVM.Emit.emit ast
+      -- writeFile "testout.hs" $ show ast
+    Left err -> print err

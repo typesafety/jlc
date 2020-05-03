@@ -24,6 +24,8 @@ module LLVM.AdtGen
        ( convert
        ) where
 
+import Debug.Trace
+
 import Data.Bifunctor (first, second)
 import Lens.Micro.Platform
 
@@ -451,7 +453,7 @@ convExpr e = case e of
   J.ERel jE1 jOp jE2 -> do
     (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
     let relOpC = getOpC jOp sid1Type
-    let ins    = IAss assId $ IOther $ relOpC boolType sid1 sid2
+    let ins    = IAss assId $ IOther $ relOpC sid1Type sid1 sid2
 
     bindType assId boolType
       >> return (instrs1 ++ instrs2 ++ [TrI ins], Just $ SIdent assId)
@@ -472,81 +474,25 @@ convExpr e = case e of
         (J.NE,  TNBitInt _) -> Icmp IC_NE
         (J.NE,  TDouble)    -> Fcmp FC_ONE
 
-  -- AND and OR have "lazy" behaviour (skip evaluating 2nd operand
-  -- if unnecessary).
+  -- TODO: AND and OR shoudl have "lazy" behaviour (skip evaluating
+  -- 2nd operand if unnecessary).
   -- TODO: EAnd/EOr are very similar; generalize?
 
   J.EAnd jE1 jE2 -> do
-    (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
-    op2Label <- nextLabel
-    trueLabel <- nextLabel
-    falseLabel <- nextLabel
-    endLabel <- nextLabel
-
-    allocVar <- nextVar
-    let allocate = IAss allocVar $ IMem $ Alloca boolType
-    let chk1 = brCond sid1 op2Label falseLabel
-    let chk2 = brCond sid2 trueLabel falseLabel
-    let storeF = storeBool 0 allocVar
-    let storeT = storeBool 1 allocVar
-    let gotoEnd = brUncond endLabel
-    let loadR = loadBool assId allocVar
-    let output = mconcat
-          [ wrapI allocate
-          , wrapI chk1
-          , wrapL op2Label
-          , wrapI chk2
-          , [ TrL trueLabel
-            , TrI storeT
-            , TrI gotoEnd
-            ]
-          , [ TrL falseLabel
-            , TrI storeF
-            , TrI gotoEnd
-            ]
-          , [ TrL endLabel
-            , TrI loadR
-            ]
-          ]
-
+    (is1, sid1) <- second fromJust <$> convExpr jE1
+    (is2, sid2) <- second fromJust <$> convExpr jE2
+    assId <- nextVar
+    let ins = IAss assId $ IBitwise $ And boolType sid1 sid2
     bindType assId boolType
-      >> return (output, Just $ SIdent assId)
+      >> return (is1 ++ is2 ++ [TrI ins], Just $ SIdent assId)
 
   J.EOr jE1 jE2 -> do
-    (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
-    op2Label <- nextLabel
-    trueLabel <- nextLabel
-    falseLabel <- nextLabel
-    endLabel <- nextLabel
-
-    allocVar <- nextVar
-    let allocate = IAss allocVar $ IMem $ Alloca boolType
-    let chk1 = brCond sid1 trueLabel op2Label
-    let chk2 = brCond sid2 trueLabel falseLabel
-    let storeF = storeBool 0 allocVar
-    let storeT = storeBool 1 allocVar
-    let gotoEnd = brUncond endLabel
-    let loadR = loadBool assId allocVar
-    let output = mconcat
-          [ wrapI allocate
-          , wrapI chk1
-          , wrapL op2Label
-          , wrapI chk2
-          , [ TrL trueLabel
-            , TrI storeT
-            , TrI gotoEnd
-            ]
-          , [ TrL falseLabel
-            , TrI storeF
-            , TrI gotoEnd
-            ]
-          , [ TrL endLabel
-            , TrI loadR
-            ]
-          ]
-
+    (is1, sid1) <- second fromJust <$> convExpr jE1
+    (is2, sid2) <- second fromJust <$> convExpr jE2
+    assId <- nextVar
+    let ins = IAss assId $ IBitwise $ Or boolType sid1 sid2
     bindType assId boolType
-      >> return (output, Just $ SIdent assId)
+      >> return (is1 ++ is2 ++ [TrI ins], Just $ SIdent assId)
 
   J.ELitInt n    -> return ([], Just $ SVal $ LInt $ fromIntegral n)
   J.ELitDouble d -> return ([], Just $ SVal $ LDouble d)

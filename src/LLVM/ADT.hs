@@ -93,6 +93,8 @@ data InstrGroup
 
 data BitwiseOp
   = Xor Type Source Source
+  | Or  Type Source Source
+  | And Type Source Source
   deriving (Eq, Show)
 
 data ArithOp

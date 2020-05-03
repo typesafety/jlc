@@ -119,7 +119,7 @@ instance EmitLLVM TermOp where
     Ret typ source -> mconcat ["ret ", emit typ, " ", emit source]
     VRet -> "ret"
     BrCond source l1 l2 -> mconcat
-      [ "br ", emit source, " %", emit l1, " %", emit l2 ]
+      [ "br i1 ", emit source, ", label %", emit l1, ", label %", emit l2 ]
     Br label -> "br %" ++ emit label
     Unreachable -> "unreachable"
 
@@ -156,6 +156,10 @@ instance EmitLLVM BitwiseOp where
   emit = \case
     Xor typ s1 s2 -> mconcat
       [ "xor ", emit typ, " ", emit s1, ", ", emit s2 ]
+    Or typ s1 s2 -> mconcat
+      [ "or ", emit typ, " ", emit s1, ", ", emit s2 ]
+    And typ s1 s2 -> mconcat
+      [ "and ", emit typ, " ", emit s1, ", ", emit s2 ]
 
 instance EmitLLVM ICond where
   -- Drop the "IC_" part and make the rest lowercase.
