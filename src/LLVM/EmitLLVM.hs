@@ -6,6 +6,7 @@ should be printed as strings.
 
 module LLVM.EmitLLVM where
 
+import Data.Char (toLower)
 import Data.List (intercalate)
 
 import LLVM.ADT
@@ -98,7 +99,7 @@ instance EmitLLVM InstrGroup where
     IBitwise bitwiseOp -> emit bitwiseOp
 
 instance EmitLLVM ArithOp where
-  emit = undefined
+  emit = map toLower . show
 
 instance EmitLLVM TermOp where
   emit = \case
@@ -112,12 +113,26 @@ instance EmitLLVM TermOp where
 instance EmitLLVM MemOp where
   emit = \case
     Alloca typ -> "alloca " ++ emit typ
-    -- Load typ id -> mconcat ["load ", emit typ, ", ", 
-    -- Store Type Source Type Ident
-    -- GetElementPtr Type [Type]
+    Load valType ptrType id -> mconcat
+      [ "load ", emit valType, ", ", emit ptrType, " ", emit id ]
+    Store valType source ptrType id -> mconcat
+      [ "store "
+      , emit valType, " ", emit source ", "
+      , emit ptrType, " ", emit id
+      ]
+    GetElementPtr typ args -> mconcat
+      [ "getelementptr ", emit typ, ", ", commaSep $ map emitArg args ]
+      where
+        emitArg :: (Type, Source) -> String
+        emitArg (typ, src) = emit typ ++ " " ++ emit src
 
 instance EmitLLVM OtherOp where
   emit = undefined
+    -- Icmp iCond typ s1 s2 -> 
+    -- Fcmp FCond Type Source Source
+    -- Call Type Ident [Arg]
+    -- Sitofp Type Source Type
+    -- Zext Type Source Type
 
 instance EmitLLVM BitwiseOp where
   emit = undefined

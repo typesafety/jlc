@@ -356,6 +356,8 @@ convExpr e = case e of
 
     bindType assId valType >> return ([TrI instr], Just $ SIdent assId)
 
+  -- TODO: Need to treat printString as a special case, as it
+  --       requires getelementptr for type correctness
   J.EApp jId jExprs -> do
     let funId = transId Global jId
     (retType, paramTypes) <- lookupFun funId
