@@ -88,10 +88,10 @@ data InstrGroup
   | ITerm TermOp
   | IMem MemOp
   | IOther OtherOp
-  | IBitWise BitWiseOp
+  | IBitwise BitwiseOp
   deriving (Eq, Show)
 
-data BitWiseOp
+data BitwiseOp
   = Xor Type Source Source
   deriving (Eq, Show)
 
@@ -100,7 +100,7 @@ data ArithOp
   = Add
   | Sub
   | Mul
-  | Sdiv
+  | Sdiv  -- Unused?
   | Srem
   -- For doubles
   | Fadd

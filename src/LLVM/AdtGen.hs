@@ -382,7 +382,7 @@ convExpr e = case e of
     assId <- nextVar
     typ <- typeOf sid
 
-    let ins = IAss assId $ IBitWise $ Xor i1 sid (SVal $ LInt 1)
+    let ins = IAss assId $ IBitwise $ Xor i1 sid (SVal $ LInt 1)
     bindType assId typ
       >> return (instrs ++ [TrI ins], Just $ SIdent assId)
 
