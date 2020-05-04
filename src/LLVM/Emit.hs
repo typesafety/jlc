@@ -69,7 +69,7 @@ instance EmitLLVM Lit where
   emit = \case
     LInt n      -> show n
     LDouble d   -> show d
-    LString str -> mconcat ["c\"", str, "\""]
+    LString str -> mconcat ["c\"", str, "\\00\""]
     -- LNull  Unused?
 
 instance EmitLLVM Ident where

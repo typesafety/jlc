@@ -169,13 +169,10 @@ convProg (J.Program topDefs) =
     -- Only supports string literals.
     toVarDef :: (GlobalVar, StringLit) -> VarDef
     toVarDef (GlobalVar id, StringLit str) =
-      VarDef id strConstType (SVal (strType str) (LString str))
-      where
         -- String variables have type [n x i8]*, here we write [n x i8]
         -- though, since it's the type of the actual string constant.
-        strConstType :: Type
-        strConstType = TArray (length str) i8
-
+      let TPointer strConstType = strType str
+      in VarDef id strConstType (SVal (strType str) (LString str))
 
     progDecls :: Signatures
     progDecls = M.fromList $ zip (map getId decls) decls
@@ -682,8 +679,12 @@ srcLitD d = SVal TDouble (LDouble d)
 boolType :: Type
 boolType = i1
 
+{- | We add 1 to the length of the string to account for the and null
+character. In the case that strings are changed to have other uses
+than only literals as printString arguments, this would need to change.
+-}
 strType :: String -> Type
-strType str = TPointer $ TArray (length str) i8
+strType str = TPointer $ TArray (length str + 1) i8
 
 --
 -- * State-related helper functions.
