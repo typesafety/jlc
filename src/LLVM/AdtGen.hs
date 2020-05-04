@@ -73,7 +73,6 @@ data St = St
   { _stGlobalCount :: Int
   , _stVarCount :: Int
   , _stLabelCount :: Int
-  , _stCxt :: Context
   , _stGlobalVars :: StringTable
   , _stTypes :: Types
   }
@@ -81,7 +80,7 @@ data St = St
 $(makeLenses ''St)
 
 initSt :: St
-initSt = St 0 0 0 M.empty M.empty M.empty
+initSt = St 0 0 0 M.empty M.empty
 
 type Signatures = M.Map Ident FunDecl
 
@@ -94,13 +93,12 @@ type Signatures = M.Map Ident FunDecl
 data Env = Env
   { _envSigs :: Signatures
   , _envRetType :: Maybe Type
-  , _envParamIds :: [Ident]
   }
 
 $(makeLenses ''Env)
 
 initEnv :: Env
-initEnv = Env initSigs Nothing []
+initEnv = Env initSigs Nothing
   where
     initSigs :: Signatures
     initSigs = M.fromList $ zip (map getId stdExtFunDefs) stdExtFunDefs
@@ -210,24 +208,58 @@ convTopDefs (d : ds) = do
     clearSt = ST.modify
       $ set stVarCount 0
       . set stLabelCount 0
-      . set stCxt M.empty
       . set stTypes M.empty
 
 convTopDef :: J.TopDef -> Convert FunDef
 convTopDef (J.FnDef jType jId jArgs jBlk) = do
   let retType = transType jType
   let funId   = transId Global jId
-  let params  = map transParam jArgs
 
-  -- Add the types of the parameters to the state.
-  ST.modify $ set stTypes (M.fromList $ map (jArgToIdType Local) jArgs)
-  -- Set the function's return type in the environment,
-  -- and add the names of the parameters to the environment.
-  let setEnv = set envRetType (Just retType)
-             . set envParamIds (map (fst . jArgToIdType Local) jArgs)
-  basicBlks <- R.local setEnv $ convBlk jBlk
+  -- In Javalette, function parameters behave the same as any other
+  -- declared variable. In LLVM however, our "normal" variables are
+  -- pointers to their value, while the function parameters are not.
+  -- Because of this, for each function parameter, we insert a
+  -- pointer allocation to the beginning of each instruction, and
+  -- store the parameter value to memory. Any references to the
+  -- parameter in the function body can then use the pointer variable
+  -- instead. Performance-wise, it should be OK, if the optimizer
+  -- is run.
+  (params, extraInstrs) <- fixParams jArgs
 
-  return $ FunDef retType funId params basicBlks
+  -- Set the function's return type in the environment.
+  basicBlks <- R.local (set envRetType (Just retType)) $ convBlk jBlk
+  let bbinj f (BasicBlock l is : bbs) = BasicBlock l (f is) : bbs
+
+  return $ FunDef retType funId params (bbinj (extraInstrs ++) basicBlks)
+
+  where
+    fixParams :: [J.Arg] -> Convert ([Param], [Instruction])
+    fixParams jArgs = do
+      -- Create the parameters and extra instructions.
+      pis <- paramsInstrs 0 jArgs
+      -- We must not forget to add the types of our new  variables
+      -- to the state.
+      ST.modify $ set stTypes (M.fromList $ map (jArgToIdType Local) jArgs)
+      return pis
+
+    paramsInstrs :: Int -> [J.Arg] -> Convert ([Param], [Instruction])
+    paramsInstrs count [] = return ([], [])
+    paramsInstrs count (J.Argument jType jId : xs) = do
+      -- Create the parameter with a new name.
+      let lType        = transType jType
+      let newId        = Ident Local ('p' : show count)
+      let renamedParam = Param lType newId
+      -- Create instructions for storing the parameter value in memory.
+      let origId     = transId Local jId
+      let allocInstr = IAss origId (IMem $ Alloca lType)
+      let storeInstr =
+            INoAss $ IMem $ Store lType (SIdent newId) (TPointer lType) origId
+      (ps, is) <- paramsInstrs (count + 1) xs
+      return (renamedParam : ps, [allocInstr, storeInstr] ++ is)
+
+    jArgToIdType :: Scope -> J.Arg -> (Ident, Type)
+    jArgToIdType scope (J.Argument jType jId) =
+      (transId scope jId, TPointer $ transType jType)
 
 convBlk :: J.Blk -> Convert [BasicBlock]
 convBlk (J.Block stmts) =
@@ -390,17 +422,13 @@ convExpr
 convExpr e = case e of
   J.EVar jId -> do
     let lId = transId Local jId
-    envIds <- R.asks (view envParamIds)
-    case lId `elem` envIds of
-      True -> return ([], Just $ SIdent lId)
-      False -> do
-        ptrType <- typeOf $ SIdent lId
-        let valType = case ptrType of
-              TPointer typ -> typ
-              _ -> error "convExpr: Load from non-pointer type"
-        assId <- nextVar
-        let instr = IAss assId $ IMem $ Load valType ptrType lId
-        bindType assId valType >> return ([TrI instr], Just $ SIdent assId)
+    ptrType <- typeOf $ SIdent lId
+    let valType = case ptrType of
+          TPointer typ -> typ
+          _ -> error "convExpr: Load from non-pointer type"
+    assId <- nextVar
+    let instr = IAss assId $ IMem $ Load valType ptrType lId
+    bindType assId valType >> return ([TrI instr], Just $ SIdent assId)
 
   -- Hardcoded for the printString case. In case the language gets
   -- extended with other functions with pointer parameters, this
@@ -594,10 +622,6 @@ convExpr e = case e of
 -- * Functions for translating from Javalette ADT to LLVM ADT.
 --
 
-jArgToIdType :: Scope -> J.Arg -> (Ident, Type)
-jArgToIdType scope (J.Argument jType jId) =
-  (transId scope jId, transType jType)
-
 transId :: Scope -> J.Ident -> Ident
 transId scope (J.Ident str) = Ident scope str
 
@@ -694,36 +718,6 @@ addGlobalStr str = do
   id <- nextGlobal
   ST.modify $ over stGlobalVars $ M.insert (GlobalVar id) (StringLit str)
   return id
-
-{- | Given the original variable name, return its new (effective) name
-as an Ident, then update its mapping to the next unique variable name.
-The same as @\ orig -> lookupVar orig >>= \ id -> incrVar orig >> return id@.
--}
-lookupIncrVar :: OriginalId -> Convert Ident
-lookupIncrVar orig = do
-  id <- lookupVar orig
-  incrVar orig
-  return id
-
-{- | Given the original variable name, update its actual name to the
-next unique variable name.
--}
-incrVar :: OriginalId -> Convert ()
-incrVar origId = do
-  newId <- nextVar
-  ST.modify $ over stCxt $ M.adjust (const $ NewId newId) origId
-
-{- | Given the original variable name, return its new name as an ident
-if it exists (the original has been previously been renamed).
-If it does not exist (has not been renamed yet), return the input variable
-as an Ident.
--}
-lookupVar :: OriginalId -> Convert Ident
-lookupVar origId@(OriginalId inId) = do
-  cxt <- ST.gets (view stCxt)
-  case M.lookup origId cxt of
-    Just (NewId outId) -> pure outId
-    Nothing            -> pure inId
 
 setCount :: Lens' St Int -> Int -> Convert ()
 setCount lens n = ST.modify $ set lens n
