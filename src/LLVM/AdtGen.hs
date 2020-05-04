@@ -171,7 +171,7 @@ convProg (J.Program topDefs) =
     -- Only supports string literals.
     toVarDef :: (GlobalVar, StringLit) -> VarDef
     toVarDef (GlobalVar id, StringLit str) =
-      VarDef id strConstType (SVal $ LString str)
+      VarDef id strConstType (SVal (strType str) (LString str))
       where
         -- String variables have type [n x i8]*, here we write [n x i8]
         -- though, since it's the type of the actual string constant.
@@ -414,7 +414,7 @@ convExpr e = case e of
 
     strStartPtr <- nextVar
     -- Lots of hard-coded stuff here currently.
-    let insArgs = [(t, arrPtrV), (i32, sLitN 0), (i32, sLitN 0)]
+    let insArgs = [(t, arrPtrV), (i32, srcLitN i32 0), (i32, srcLitN i32 0)]
     let getPtrInstr = IAss strStartPtr $ IMem $ GetElementPtr arrType insArgs
     let funArgs = [Arg (TPointer i8) (SIdent strStartPtr)]
     let callInstr = INoAss $ IOther $ Call TVoid funId funArgs
@@ -448,8 +448,10 @@ convExpr e = case e of
     (instrs, sid) <- second fromJust <$> convExpr jExpr
     assId <- nextVar
     negIns <- typeOf sid >>= \case
-      TNBitInt 32 -> pure $ IAss assId $ IArith Mul i32 sid (sLitN (-1))
-      TDouble     -> pure $ IAss assId $ IArith Fmul TDouble sid (sLitD (-1))
+      TNBitInt 32 ->
+        pure $ IAss assId $ IArith Mul i32 sid (srcLitN i32 (-1))
+      TDouble     ->
+        pure $ IAss assId $ IArith Fmul TDouble sid (srcLitD (-1))
     return (instrs ++ [TrI negIns], Just (SIdent assId))
 
   J.Not jExpr -> do
@@ -457,7 +459,7 @@ convExpr e = case e of
     assId <- nextVar
     typ <- typeOf sid
 
-    let ins = IAss assId $ IBitwise $ Xor i1 sid (SVal $ LInt 1)
+    let ins = IAss assId $ IBitwise $ Xor i1 sid (SVal i1 (LInt 1))
     bindType assId typ
       >> return (instrs ++ [TrI ins], Just $ SIdent assId)
 
@@ -557,10 +559,10 @@ convExpr e = case e of
     bindType assId boolType
       >> return (is1 ++ is2 ++ [TrI ins], Just $ SIdent assId)
 
-  J.ELitInt n    -> return ([], Just $ SVal $ LInt $ fromIntegral n)
-  J.ELitDouble d -> return ([], Just $ SVal $ LDouble d)
-  J.ELitTrue     -> return ([], Just $ SVal $ LInt 1)
-  J.ELitFalse    -> return ([], Just $ SVal $ LInt 0)
+  J.ELitInt n    -> return ([], Just $ srcLitN i32 (fromIntegral n))
+  J.ELitDouble d -> return ([], Just $ srcLitD d)
+  J.ELitTrue     -> return ([], Just $ srcLitN boolType 1)
+  J.ELitFalse    -> return ([], Just $ srcLitN boolType 0)
 
   -- Forgot that we annotated during type checking...
   -- TODO: rewrite code to make use of type annotation.
@@ -587,13 +589,6 @@ convExpr e = case e of
 
     wrapL :: Label -> [Translated]
     wrapL l = [TrL l]
-
-    loadBool :: Ident -> Ident -> Instruction
-    loadBool to from = IAss to $ IMem $ Load boolType (TPointer boolType) from
-
-    storeBool :: Int -> Ident -> Instruction
-    storeBool n id =
-      INoAss $ IMem $ Store boolType (SVal $ LInt n) (TPointer boolType) id
 
 --
 -- * Functions for translating from Javalette ADT to LLVM ADT.
@@ -654,11 +649,11 @@ i8 = iBit 8
 i1 :: Type
 i1 = iBit 1
 
-sLitN :: Int -> Source
-sLitN n = SVal $ LInt n
+srcLitN :: Type -> Int -> Source
+srcLitN t n = SVal t (LInt n)
 
-sLitD :: Double -> Source
-sLitD d = SVal $ LDouble d
+srcLitD :: Double -> Source
+srcLitD d = SVal TDouble (LDouble d)
 
 boolType :: Type
 boolType = i1
@@ -687,8 +682,8 @@ bindType id typ = ST.modify $ over stTypes $ add id typ
 -- | Get the type of a Source (variable or literal value).
 typeOf :: Source -> Convert Type
 typeOf (SIdent id) = unsafeLookup id <$> ST.gets (view stTypes)
-typeOf (SVal lit) = return $ case lit of
-  LInt _    -> i32
+typeOf (SVal typ lit) = return $ case lit of
+  LInt _    -> typ
   LDouble _ -> TDouble
   LNull     -> TNull
   LString s -> strType s

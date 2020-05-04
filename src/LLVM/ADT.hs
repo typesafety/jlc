@@ -186,7 +186,7 @@ data VarDef = VarDef Ident Type Source
 
 data Source
   = SIdent Ident
-  | SVal Lit
+  | SVal Type Lit
   deriving (Eq, Show)
 
 data TypeDef = TypeDef Ident Type

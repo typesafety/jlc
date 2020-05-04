@@ -62,8 +62,8 @@ instance EmitLLVM Param where
   emit (Param typ id) = emit typ ++ " " ++ emit id
 
 instance EmitLLVM Source where
-  emit (SIdent id) = emit id
-  emit (SVal lit)  = emit lit
+  emit (SIdent id)  = emit id
+  emit (SVal _ lit) = emit lit
 
 instance EmitLLVM Lit where
   emit = \case
