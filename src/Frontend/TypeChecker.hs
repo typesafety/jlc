@@ -261,7 +261,7 @@ annotate topExp = do
       Not exp -> do
         (annExp, eType) <- annotate2 exp
         if eType `okType` [Bool]
-          then return (Neg annExp, eType)
+          then return (Not annExp, eType)
           else throw $ ExpError exp [Bool] eType
 
       EMul e1 op e2 -> do
