@@ -460,7 +460,7 @@ convExpr e = case e of
     (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
 
     case (jOp, sid1Type) of
-      (J.Times, TDouble) -> do
+      (J.Div, TNBitInt _) -> do
         let retType = TDouble
         fpVar1 <- nextVar
         fpVar2 <- nextVar
@@ -469,6 +469,8 @@ convExpr e = case e of
               , instrs2
               , map TrI
                 [ IAss fpVar1 $ IOther $ Sitofp sid1Type sid1 retType
+                -- It should really be sid1Type and sid2Type, but JL
+                -- disallows casting, so this is equivalent.
                 , IAss fpVar2 $ IOther $ Sitofp sid1Type sid2 retType
                 , IAss assId
                   $ IArith Fdiv retType (SIdent fpVar1) (SIdent fpVar1)
