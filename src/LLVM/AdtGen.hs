@@ -27,6 +27,7 @@ module LLVM.AdtGen
 import Debug.Trace
 
 import Data.Bifunctor (first, second)
+import Data.Functor ((<&>))
 import Lens.Micro.Platform
 
 import qualified Control.Monad.Reader as R
@@ -88,16 +89,18 @@ type Signatures = M.Map Ident FunDecl
 @envSigs@ - Table of mappings from function Idents to their return types and
   argument types. For now, all Idents should be of global scope.
 @envRetType@ - When inside a function, this is its return type.
+@envParamIds@ - When inside a function, these are the function's parameters.
 -}
 data Env = Env
   { _envSigs :: Signatures
   , _envRetType :: Maybe Type
+  , _envParamIds :: [Ident]
   }
 
 $(makeLenses ''Env)
 
 initEnv :: Env
-initEnv = Env initSigs Nothing
+initEnv = Env initSigs Nothing []
   where
     initSigs :: Signatures
     initSigs = M.fromList $ zip (map getId stdExtFunDefs) stdExtFunDefs
@@ -154,7 +157,7 @@ convProg :: J.Prog -> Convert LLVM
 convProg (J.Program topDefs) =
   -- Add the function signatures from the JL definitions.
   R.local (over envSigs $ M.union progDecls) $ do
-    funDefs <- mapM convTopDef topDefs -- TODO: RESET CERTAIN STATE AFTER EACH DEF
+    funDefs <- convTopDefs topDefs -- TODO: RESET CERTAIN STATE AFTER EACH DEF
     varDefs <- map toVarDef . M.toList <$> ST.gets (view stGlobalVars)
     let funDecls = stdExtFunDefs
     return $ LLVM 
@@ -185,6 +188,7 @@ convProg (J.Program topDefs) =
         getId :: FunDecl -> Ident
         getId (FunDecl _ id _) = id
 
+
 -- | Get the LLVM function definition from a JL TopDef construct.
 getFunDecl :: J.TopDef -> FunDecl
 getFunDecl (J.FnDef jType jId jArgs jBlk) =
@@ -193,15 +197,35 @@ getFunDecl (J.FnDef jType jId jArgs jBlk) =
       pTypes  = map (\ (J.Argument t _) -> transType t) jArgs
   in FunDecl retType funId pTypes
 
+convTopDefs :: [J.TopDef] -> Convert [FunDef]
+convTopDefs []       = return []
+convTopDefs (d : ds) = do
+  fd <- convTopDef d
+  clearSt
+  fds <- convTopDefs ds
+  return $ fd : fds
+  where
+    -- Reset parts of the state between function definitions.
+    clearSt :: Convert ()
+    clearSt = ST.modify
+      $ set stVarCount 0
+      . set stLabelCount 0
+      . set stCxt M.empty
+      . set stTypes M.empty
+
 convTopDef :: J.TopDef -> Convert FunDef
 convTopDef (J.FnDef jType jId jArgs jBlk) = do
   let retType = transType jType
   let funId   = transId Global jId
   let params  = map transParam jArgs
 
-  -- Set the function's return type in the environment. 
-
-  basicBlks <- R.local (set envRetType $ Just $ transType jType) $ convBlk jBlk
+  -- Add the types of the parameters to the state.
+  ST.modify $ set stTypes (M.fromList $ map (jArgToIdType Local) jArgs)
+  -- Set the function's return type in the environment,
+  -- and add the names of the parameters to the environment.
+  let setEnv = set envRetType (Just retType)
+             . set envParamIds (map (fst . jArgToIdType Local) jArgs)
+  basicBlks <- R.local setEnv $ convBlk jBlk
 
   return $ FunDef retType funId params basicBlks
 
@@ -365,19 +389,18 @@ convExpr
   -> Convert ([Translated], Maybe Source)
 convExpr e = case e of
   J.EVar jId -> do
-    let memId = transId Local jId
-    ptrType <- typeOf $ SIdent memId
-    let valType = case ptrType of
-          TPointer typ -> typ
-          _ -> error "convExpr: Load from non-pointer type"
-
-    assId <- nextVar
-    let instr = IAss assId $ IMem $ Load valType ptrType memId
-
-    bindType assId valType >> return ([TrI instr], Just $ SIdent assId)
-
-  -- TODO: Need to treat printString as a special case, as it
-  --       requires getelementptr for type correctness
+    let lId = transId Local jId
+    envIds <- R.asks (view envParamIds)
+    case lId `elem` envIds of
+      True -> return ([], Just $ SIdent lId)
+      False -> do
+        ptrType <- typeOf $ SIdent lId
+        let valType = case ptrType of
+              TPointer typ -> typ
+              _ -> error "convExpr: Load from non-pointer type"
+        assId <- nextVar
+        let instr = IAss assId $ IMem $ Load valType ptrType lId
+        bindType assId valType >> return ([TrI instr], Just $ SIdent assId)
 
   -- Hardcoded for the printString case. In case the language gets
   -- extended with other functions with pointer parameters, this
@@ -564,11 +587,13 @@ convExpr e = case e of
     storeBool n id =
       INoAss $ IMem $ Store boolType (SVal $ LInt n) (TPointer boolType) id
 
-
-
 --
 -- * Functions for translating from Javalette ADT to LLVM ADT.
 --
+
+jArgToIdType :: Scope -> J.Arg -> (Ident, Type)
+jArgToIdType scope (J.Argument jType jId) =
+  (transId scope jId, transType jType)
 
 transId :: Scope -> J.Ident -> Ident
 transId scope (J.Ident str) = Ident scope str
@@ -636,7 +661,7 @@ strType str = TPointer $ TArray (length str) i8
 
 -- Given a function ID, return its return type and parameters.
 lookupFun :: Stack.HasCallStack => Ident -> Convert (Type, [Type])
-lookupFun id = fromJust . M.lookup id <$> R.asks (view envSigs) >>= \case
+lookupFun id = unsafeLookup id <$> R.asks (view envSigs) >>= \case
   FunDecl retType _ pTypes -> return (retType, pTypes)
 
 -- | Set the type for a variable.
@@ -650,7 +675,7 @@ bindType id typ = ST.modify $ over stTypes $ add id typ
 
 -- | Get the type of a Source (variable or literal value).
 typeOf :: Source -> Convert Type
-typeOf (SIdent id) = (M.! id) <$> ST.gets (view stTypes)
+typeOf (SIdent id) = unsafeLookup id <$> ST.gets (view stTypes)
 typeOf (SVal lit) = return $ case lit of
   LInt _    -> i32
   LDouble _ -> TDouble
@@ -757,3 +782,9 @@ labelBase = "label"
 fromJust :: Stack.HasCallStack => Maybe a -> a
 fromJust Nothing  = error "fromJust: Nothing"
 fromJust (Just a) = a
+
+unsafeLookup :: (Stack.HasCallStack, Ord k, Show k) => k -> M.Map k a -> a
+unsafeLookup k m = case M.lookup k m of
+  Just v  -> v
+  Nothing -> error $ "unsafeLookup: key `" ++ show k
+                   ++ "` could not be found in map"
