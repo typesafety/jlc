@@ -444,8 +444,13 @@ convExpr e = case e of
     gId <- addGlobalStr str
     bindType gId (strType str) >> return ([], Just $ SIdent gId)
 
-  -- This should be equivalent
-  J.Neg jExpr -> convExpr $ J.EMul (J.ELitInt (-1)) J.Times jExpr
+  J.Neg jExpr -> do
+    (instrs, sid) <- second fromJust <$> convExpr jExpr
+    assId <- nextVar
+    negIns <- typeOf sid >>= \case
+      TNBitInt 32 -> pure $ IAss assId $ IArith Mul i32 sid (sLitN (-1))
+      TDouble     -> pure $ IAss assId $ IArith Fmul TDouble sid (sLitD (-1))
+    return (instrs ++ [TrI negIns], Just (SIdent assId))
 
   J.Not jExpr -> do
     (instrs, sid) <- second fromJust <$> convExpr jExpr
@@ -460,23 +465,23 @@ convExpr e = case e of
     (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
 
     case (jOp, sid1Type) of
-      (J.Div, TNBitInt _) -> do
-        let retType = TDouble
-        fpVar1 <- nextVar
-        fpVar2 <- nextVar
-        let inss = mconcat
-              [ instrs1
-              , instrs2
-              , map TrI
-                [ IAss fpVar1 $ IOther $ Sitofp sid1Type sid1 retType
-                -- It should really be sid1Type and sid2Type, but JL
-                -- disallows casting, so this is equivalent.
-                , IAss fpVar2 $ IOther $ Sitofp sid1Type sid2 retType
-                , IAss assId
-                  $ IArith Fdiv retType (SIdent fpVar1) (SIdent fpVar1)
-                ]
-              ]
-        bindType assId retType >> return (inss, Just $ SIdent assId)
+      -- (J.Div, TNBitInt _) -> do
+      --   let retType = TDouble
+      --   fpVar1 <- nextVar
+      --   fpVar2 <- nextVar
+      --   let inss = mconcat
+      --         [ instrs1
+      --         , instrs2
+      --         , map TrI
+      --           [ IAss fpVar1 $ IOther $ Sitofp sid1Type sid1 retType
+      --           -- It should really be sid1Type and sid2Type, but JL
+      --           -- disallows casting, so this is equivalent.
+      --           , IAss fpVar2 $ IOther $ Sitofp sid1Type sid2 retType
+      --           , IAss assId
+      --             $ IArith Fdiv retType (SIdent fpVar1) (SIdent fpVar1)
+      --           ]
+      --         ]
+      --   bindType assId retType >> return (inss, Just $ SIdent assId)
 
       _ -> do
         let arithOp = getOp jOp sid1Type
@@ -490,6 +495,7 @@ convExpr e = case e of
             (J.Times, TDouble)     -> Fmul
             (J.Times, TNBitInt _)  -> Mul
             (J.Div, TDouble)       -> Fdiv
+            (J.Div, TNBitInt _)    -> Sdiv
             (J.Mod, TNBitInt _)    -> Srem
 
   J.EAdd jE1 jOp jE2 -> do
@@ -650,6 +656,9 @@ i1 = iBit 1
 
 sLitN :: Int -> Source
 sLitN n = SVal $ LInt n
+
+sLitD :: Double -> Source
+sLitD d = SVal $ LDouble d
 
 boolType :: Type
 boolType = i1
