@@ -207,7 +207,15 @@ convTopDef (J.FnDef jType jId jArgs jBlk) = do
 
 convBlk :: J.Blk -> Convert [BasicBlock]
 convBlk (J.Block stmts) =
-  buildBlocks . (TrL (Label "entry") :) . concat <$> mapM convStmt stmts
+  let blockify = map tieUp . buildBlocks . (TrL (Label "entry") :)
+  in blockify . concat <$> mapM convStmt stmts
+  where
+    -- Add an "unreachable" instruction to the end of a basic block if
+    -- it does not end in a terminator instruction.
+    tieUp :: Stack.HasCallStack => BasicBlock -> BasicBlock
+    tieUp inBlk@(BasicBlock l is) = case last is of
+      INoAss (ITerm _) -> inBlk
+      _                -> BasicBlock l (is ++ [INoAss $ ITerm Unreachable])
 
 {- | Given a list of labels and instructions, divide the instructions
 into blocks at each label.
