@@ -147,7 +147,7 @@ data FCond
   -- | FC_UEQ
   -- | FC_UGT
   -- | FC_UGE
-  -- | FC_ULT
+  | FC_ULT
   -- | FC_ULE
   -- | FC_UNE
   -- | FC_UNO

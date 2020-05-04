@@ -26,6 +26,7 @@ module LLVM.AdtGen
 
 import Debug.Trace
 
+import Control.Monad (replicateM)
 import Data.Bifunctor (first, second)
 import Data.Functor ((<&>))
 import Lens.Micro.Platform
@@ -490,40 +491,19 @@ convExpr e = case e of
 
   J.EMul jE1 jOp jE2 -> do
     (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
+    let arithOp = getOp jOp sid1Type
+    let ins     = IAss assId $ IArith arithOp sid1Type sid1 sid2
+    bindType assId sid1Type
+      >> return (instrs1 ++ instrs2 ++ [TrI ins], Just $ SIdent assId)
 
-    case (jOp, sid1Type) of
-      -- (J.Div, TNBitInt _) -> do
-      --   let retType = TDouble
-      --   fpVar1 <- nextVar
-      --   fpVar2 <- nextVar
-      --   let inss = mconcat
-      --         [ instrs1
-      --         , instrs2
-      --         , map TrI
-      --           [ IAss fpVar1 $ IOther $ Sitofp sid1Type sid1 retType
-      --           -- It should really be sid1Type and sid2Type, but JL
-      --           -- disallows casting, so this is equivalent.
-      --           , IAss fpVar2 $ IOther $ Sitofp sid1Type sid2 retType
-      --           , IAss assId
-      --             $ IArith Fdiv retType (SIdent fpVar1) (SIdent fpVar1)
-      --           ]
-      --         ]
-      --   bindType assId retType >> return (inss, Just $ SIdent assId)
-
-      _ -> do
-        let arithOp = getOp jOp sid1Type
-        let ins     = IAss assId $ IArith arithOp sid1Type sid1 sid2
-        bindType assId sid1Type
-          >> return (instrs1 ++ instrs2 ++ [TrI ins], Just $ SIdent assId)
-
-        where
-          getOp :: J.MulOp -> Type -> ArithOp
-          getOp jOp typ = case (jOp, typ) of
-            (J.Times, TDouble)     -> Fmul
-            (J.Times, TNBitInt _)  -> Mul
-            (J.Div, TDouble)       -> Fdiv
-            (J.Div, TNBitInt _)    -> Sdiv
-            (J.Mod, TNBitInt _)    -> Srem
+    where
+      getOp :: J.MulOp -> Type -> ArithOp
+      getOp jOp typ = case (jOp, typ) of
+        (J.Times, TDouble)    -> Fmul
+        (J.Times, TNBitInt _) -> Mul
+        (J.Div,   TDouble)    -> Fdiv
+        (J.Div,   TNBitInt _) -> Sdiv
+        (J.Mod,   TNBitInt _) -> Srem
 
   J.EAdd jE1 jOp jE2 -> do
     (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
@@ -545,7 +525,7 @@ convExpr e = case e of
     let relOpC = getOpC jOp sid1Type
     let ins    = IAss assId $ IOther $ relOpC sid1Type sid1 sid2
 
-    bindType assId boolType
+    bindType assId bool
       >> return (instrs1 ++ instrs2 ++ [TrI ins], Just $ SIdent assId)
 
     where
@@ -569,25 +549,113 @@ convExpr e = case e of
   -- TODO: EAnd/EOr are very similar; generalize?
 
   J.EAnd jE1 jE2 -> do
-    (is1, sid1) <- second fromJust <$> convExpr jE1
-    (is2, sid2) <- second fromJust <$> convExpr jE2
-    assId <- nextVar
-    let ins = IAss assId $ IBitwise $ And boolType sid1 sid2
-    bindType assId boolType
-      >> return (is1 ++ is2 ++ [TrI ins], Just $ SIdent assId)
+    (inss1, sid1) <- second fromJust <$> convExpr jE1
+    (inss2, sid2) <- second fromJust <$> convExpr jE2
+
+    -- Needed labels
+    lbls <- replicateM 4 nextLabel
+    let [lEvalSnd, lWriteT, lWriteF, lEnd] = lbls
+
+    -- (Start) Allocate memory for storing the result of the expression.
+    resMem <- nextVar
+    let insResMem = IAss resMem (IMem $ Alloca bool)
+    -- Evaluate the first expression and branch.
+    e1res <- nextVar
+    let ins1   = IAss e1res (IBitwise $ And i1 sid1 srcTrue)
+    let insBr1 = brCond (SIdent e1res) lEvalSnd lWriteF
+
+    -- (lEvalSnd) Evaluate the second expression and branch.
+    e2res <- nextVar
+    let ins2   = IAss e2res (IBitwise $ And i1 sid2 srcTrue)
+    let insBr2 = brCond (SIdent e2res) lWriteT lWriteF
+
+    -- (lWriteT) Store true.
+    let insWriteT = bWrite True  resMem
+    -- (lWriteF) Store false.
+    let insWriteF = bWrite False resMem
+    -- Jump to end.
+    let insDone = brUncond lEnd
+
+    -- (lEnd) Load the result.
+    res <- nextVar
+    let insLoadRes = IAss res (IMem $ Load i1 (toPtr i1) resMem)
+
+    -- List of Translated.
+    let output = mconcat
+          [ inss1
+          , [ TrI insResMem, TrI ins1, TrI insBr1 ]
+          , TrL lEvalSnd : inss2
+          , [ TrI ins2, TrI insBr2 ]
+          , [ TrL lWriteT, TrI insWriteT, TrI insDone
+            , TrL lWriteF, TrI insWriteF, TrI insDone
+            , TrL lEnd,    TrI insLoadRes
+            ]
+          ]
+    bindType res bool >> return (output, Just (SIdent res))
+
+    where
+      -- Write true (1) or false (0) to a given Ident, which must be a i1*.
+      bWrite :: Bool -> Ident -> Instruction
+      bWrite b id =
+        let v = if b then srcLitN i1 1 else srcLitN i1 0
+        in INoAss $ IMem $ Store i1 v (toPtr i1) id
 
   J.EOr jE1 jE2 -> do
-    (is1, sid1) <- second fromJust <$> convExpr jE1
-    (is2, sid2) <- second fromJust <$> convExpr jE2
-    assId <- nextVar
-    let ins = IAss assId $ IBitwise $ Or boolType sid1 sid2
-    bindType assId boolType
-      >> return (is1 ++ is2 ++ [TrI ins], Just $ SIdent assId)
+    (inss1, sid1) <- second fromJust <$> convExpr jE1
+    (inss2, sid2) <- second fromJust <$> convExpr jE2
 
-  J.ELitInt n    -> return ([], Just $ srcLitN i32 (fromIntegral n))
+    -- Needed labels
+    lbls <- replicateM 4 nextLabel
+    let [lEvalSnd, lWriteT, lWriteF, lEnd] = lbls
+
+    -- (Start) Allocate memory for storing the result of the expression.
+    resMem <- nextVar
+    let insResMem = IAss resMem (IMem $ Alloca bool)
+    -- Evaluate the first expression and branch.
+    e1res <- nextVar
+    let ins1   = IAss e1res (IBitwise $ And i1 sid1 srcTrue)
+    let insBr1 = brCond (SIdent e1res) lWriteT lEvalSnd
+
+    -- (lEvalSnd) Evaluate the second expression and branch.
+    e2res <- nextVar
+    let ins2   = IAss e2res (IBitwise $ And i1 sid2 srcTrue)
+    let insBr2 = brCond (SIdent e2res) lWriteT lWriteF
+
+    -- (lWriteT) Store true.
+    let insWriteT = bWrite True  resMem
+    -- (lWriteF) Store false.
+    let insWriteF = bWrite False resMem
+    -- Jump to end.
+    let insDone = brUncond lEnd
+
+    -- (lEnd) Load the result.
+    res <- nextVar
+    let insLoadRes = IAss res (IMem $ Load i1 (toPtr i1) resMem)
+
+    -- List of Translated.
+    let output = mconcat
+          [ inss1
+          , [ TrI insResMem, TrI ins1, TrI insBr1 ]
+          , TrL lEvalSnd : inss2
+          , [ TrI ins2, TrI insBr2 ]
+          , [ TrL lWriteT, TrI insWriteT, TrI insDone
+            , TrL lWriteF, TrI insWriteF, TrI insDone
+            , TrL lEnd,    TrI insLoadRes
+            ]
+          ]
+    bindType res bool >> return (output, Just (SIdent res))
+
+    where
+      -- Write true (1) or false (0) to a given Ident, which must be a i1*.
+      bWrite :: Bool -> Ident -> Instruction
+      bWrite b id =
+        let v = if b then srcLitN i1 1 else srcLitN i1 0
+        in INoAss $ IMem $ Store i1 v (toPtr i1) id
+
+  J.ELitInt n    -> return ([], Just $ srcI32 (fromIntegral n))
   J.ELitDouble d -> return ([], Just $ srcLitD d)
-  J.ELitTrue     -> return ([], Just $ srcLitN boolType 1)
-  J.ELitFalse    -> return ([], Just $ srcLitN boolType 0)
+  J.ELitTrue     -> return ([], Just srcTrue)
+  J.ELitFalse    -> return ([], Just srcFalse)
 
   -- Forgot that we annotated during type checking...
   -- TODO: rewrite code to make use of type annotation.
@@ -629,7 +697,7 @@ transType :: Stack.HasCallStack => J.Type -> Type
 transType = \case
   J.Int    -> i32
   J.Double -> TDouble
-  J.Bool   -> boolType
+  J.Bool   -> bool
   J.Void   -> TVoid
   J.Str    -> error "String type needs special care"
 
@@ -653,8 +721,9 @@ globalId = Ident Global
 localId :: String -> Ident
 localId = Ident Local
 
-newLabel :: String -> Label
-newLabel = Label
+-- | Turn a type @t@ into a pointer of type @t@.
+toPtr :: Type -> Type
+toPtr = TPointer
 
 -- | Shorthand for creating integers of size n bits.
 iBit :: Int -> Type
@@ -670,14 +739,21 @@ i8 = iBit 8
 i1 :: Type
 i1 = iBit 1
 
+bool :: Type
+bool = i1
+
 srcLitN :: Type -> Int -> Source
 srcLitN t n = SVal t (LInt n)
 
 srcLitD :: Double -> Source
 srcLitD d = SVal TDouble (LDouble d)
 
-boolType :: Type
-boolType = i1
+srcI32 :: Int -> Source
+srcI32 = srcLitN i32
+
+srcTrue, srcFalse :: Source
+srcTrue  = srcLitN i1 1
+srcFalse = srcLitN i1 0
 
 {- | We add 1 to the length of the string to account for the and null
 character. In the case that strings are changed to have other uses
