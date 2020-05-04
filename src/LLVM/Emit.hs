@@ -25,10 +25,10 @@ class EmitLLVM a where
 instance EmitLLVM LLVM where
   emit (LLVM typeDefs varDefs funDefs funDecls) =
     intercalate "\n\n"
-      [ newlineSep typeDefs
-      , newlineSep varDefs
-      , newlineSep funDecls
-      , newlineSep funDefs
+      [ newlineSepN 2 typeDefs
+      , newlineSepN 2 varDefs
+      , newlineSepN 2 funDecls
+      , newlineSepN 2 funDefs
       ]
 
 instance EmitLLVM TypeDef where
@@ -51,8 +51,8 @@ instance EmitLLVM FunDef where
 
 instance EmitLLVM BasicBlock where
   emit (BasicBlock label instrs) = mconcat
-    [ emit label, ":\n"
-    , unlines $ map (("  " ++) . emit) instrs
+    [ indent ++ emit label, ":\n"
+    , unlines $ map ((concat (replicate 2 indent) ++) . emit) instrs
     ]
 
 instance EmitLLVM Label where
@@ -173,7 +173,10 @@ instance EmitLLVM FCond where
 --
 
 newlineSep :: EmitLLVM a => [a] -> String
-newlineSep = intercalate "\n" . map emit
+newlineSep = newlineSepN 1
+
+newlineSepN :: EmitLLVM a => Int -> [a] -> String
+newlineSepN n = intercalate (replicate n '\n') . map emit
 
 commaSep :: EmitLLVM a => [a] -> String
 commaSep = intercalate ", " . map emit
@@ -186,3 +189,6 @@ divideOn mark xs = divide' mark ([], xs)
     divide' mark (l, r : rs)
       | r == mark = (l, rs)
       | otherwise = divide' mark (l ++ [r], rs)
+
+indent :: String
+indent = "  "
