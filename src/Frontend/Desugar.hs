@@ -37,7 +37,14 @@ desugar = runDesugar . desugar'
     desugar' (Program topDefs) = Program <$> traverse dsgTopDef topDefs
 
 dsgTopDef :: TopDef -> Desugar TopDef
-dsgTopDef (FnDef typ id args blk) = FnDef typ id args <$> dsgBlk blk
+dsgTopDef (FnDef typ id args blk) = do
+  desugaredBlk <- case typ of
+    -- If the return type is void, we insert a return statement as
+    -- the last statement. Redundant return statements are optimized
+    -- away and helps during code generation.
+    Void -> dsgBlk blk >>= \ (Block ss) -> return $ Block (ss ++ [VRet])
+    _    -> dsgBlk blk
+  return $ FnDef typ id args desugaredBlk
 
 dsgBlk :: Blk -> Desugar Blk
 dsgBlk (Block stmts) = Block <$> dsgStmts stmts
