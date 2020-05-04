@@ -117,7 +117,7 @@ instance EmitLLVM ArithOp where
 instance EmitLLVM TermOp where
   emit = \case
     Ret typ source -> mconcat ["ret ", emit typ, " ", emit source]
-    VRet -> "ret"
+    VRet -> "ret void"
     BrCond source l1 l2 -> mconcat
       [ "br i1 ", emit source, ", label %", emit l1, ", label %", emit l2 ]
     Br label -> "br label %" ++ emit label
