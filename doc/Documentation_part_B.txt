@@ -54,16 +54,18 @@ The compiler performs the following steps:
     This mainly involves removing redundant pieces of code, such
     as branches of conditional statements that are clearly unreachable.
 
-    Although an optimization phase might be useful, this implementation
-    is very conservative and performs only very rudimentary analysis
-    of the program. Thus, it does not serve much practical
+    Although optimization phases might be useful, this particular
+    implementation performs only very rudimentary analysis
+    of the program. Thus, it barely serves any practical
     purpose in its current state. Some potentially useful optimizations
     could include deeper analysis of the semantics of the program, in
     order to perform changes such as unwinding loops or more
-    aggressively rewriting nested expressions. However, it is also
-    possible that later phases in the pipeline (such as the LLVM
-    optimizer) can perform equal or better optimizations, and as
-    such, this phase is of low priority.
+    aggressively rewriting nested expressions. Such optimization passes
+    would likely be better of running on some sort of intermediate
+    representation (likely some sort of control flow graph).
+
+    Since we are targeting LLVM, we can instead simply let the existing
+    optimization tools for LLVM do a lot of optimization for us.
 
 7. Type checking and type annotation (2) (Frontend.TypeChecker):
 
