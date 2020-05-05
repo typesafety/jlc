@@ -111,6 +111,6 @@ dsgStmt = \case
     handleS (BStmt blk) = BStmt <$> dsgBlk blk
     handleS stmt        = either (BStmt . Block) id <$> dsgStmt stmt
 
--- | Expression desugaring can be added here as needed.
+-- | Expression desugaring can be added here if applicable needed.
 dsgExpr :: Expr -> Desugar Expr
 dsgExpr = pure

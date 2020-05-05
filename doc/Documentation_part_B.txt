@@ -1,0 +1,149 @@
+> How to use:
+
+After generating the executable `jlc` by running `make all` in the project
+root, the compiler can be run as an executable with one Javalette source
+file as its argument. Alternatively, the executable can read from stdin.
+
+Running the executable will write the contents of a generated .ll
+file to stdout. Redirect the output (with ">", for example) in order
+to write to a file.
+>> TODO: include more of the toolchain (call llvm-as, linking etc.)
+         in the executable
+
+The compiler performs the following steps:
+
+1. Lexing
+2. Parsing
+3. Type checking (1) (Frontend.TypeChecker):
+
+    Performs a pass of type checking and type annotation, aborting the
+    process and notifying the user if an error is found. The error
+    thrown in this phase are expected to be user errors, and as
+    such are formatted to be more human-readable and helpful than in
+    later phases. Any errors past this phase are to be treated as
+    compiler bugs.
+
+    If successful, the result from this type check is thrown away;
+    explained further below.
+
+4. Alpha-renaming (Frontend.AlphaRename):
+
+    Performed on the output from the _parser_.
+    The alpha-renaming step serves to rename duplicate variable
+    declarations in a function. These are allowed in Javalette due
+    to scoping with blocks, but since this is not the case for LLVM,
+    having only unique declarations significantly simplifies later
+    code generation phases.
+
+5. Desugaring (Frontend.Desugar):
+
+    Performs some desugaring on the output from the _parser_ (an AST),
+    simplifying (not necessarily shortening) the code, rewriting
+    and removing certain constructs. The purpose of this step is
+    to make the code generation steps easier, having to consider
+    fewer and less complicated cases. For example, we rewrite JL
+    Incr and Decr statements to equivalent versions of regular
+    variable assignments (from x++ and x-- to x = x + 1 and
+    x = x - 1, respectively), and separate varaible declarations
+    from their initializations. The desugaring step must not change
+    the semantics of the program.
+
+6. Optimization (Frontend.OptimizeAST):
+
+    Performs some very basic optimization on the desugared output.
+    This mainly involves removing redundant pieces of code, such
+    as branches of conditional statements that are clearly unreachable.
+
+    Although an optimization phase might be useful, this implementation
+    is very conservative and performs only very rudimentary analysis
+    of the program. Thus, it does not serve much practical
+    purpose in its current state. Some potentially useful optimizations
+    could include deeper analysis of the semantics of the program, in
+    order to perform changes such as unwinding loops or more
+    aggressively rewriting nested expressions. However, it is also
+    possible that later phases in the pipeline (such as the LLVM
+    optimizer) can perform equal or better optimizations, and as
+    such, this phase is of low priority.
+
+7. Type checking and type annotation (2) (Frontend.TypeChecker):
+
+    We perform a second type check (and type annotation) before
+    code generation. This gives some additional protection against
+    compiler bugs in the previous two phases. This time,the output
+    from this phase _is_ used in the following phase. Note that
+    the type annotation performed in the first type checking phase
+    is redundant since it is not used at all. Theoretically, this
+    is a bit of a waste of resources. The reason it was implemented
+    this way is that type checking and annotation was implemented as
+    a single pass at first (for efficiency), before the second
+    type check was added.
+
+8. LLVM ADT generation (LLVM.ADT):
+
+    In this phase, the type checked and annotated Javalette AST
+    is converted into an LLVM AST as an intermediate data type,
+    before generating the actual string output. Having an
+    intermediate data type provides some flexibility, allowing
+    for easier maintainability, for example in the case of
+    changes to the language specification. Also, for the
+    process of producing a string from the AST, it can be easier
+    to debug errors if there is an intermediate type.
+
+9. LLVM code output:
+
+    This step produces a string from the LLVM ADT. The output
+    from this phase is in the form where it can be assembled
+    with an LLVM assembler (llvm-as).
+
+> Language specification:
+
+(Same as for Part A)
+
+Refer to the BNF grammar at src/Javalette.cf.
+
+> Shift/reduce conficts in the parser:
+
+(Same as for Part A)
+
+* There is one shift/reduce conflict that comes from the
+"dangling else"-ambiguity. In the happy-generated info file, we have
+something like this:
+
+Stmt -> 'if' '(' Expr ')' Stmt .                    (rule 24)
+Stmt -> 'if' '(' Expr ')' Stmt . 'else' Stmt        (rule 25)
+
+where (.) indicates the current position.
+
+If we have nested if-statements, we can have the following problem:
+
+if (x) if (y) return a; . else return b;
+
+where x and y are expressions.
+
+Depending on whether we choose to shift the "else" or reduce the
+current stack, we will end up with one of two interpretations:
+
+Shift:
+    if (x) {
+        if (y) {
+            return a;
+        } else {
+            return b;
+        }
+    }
+
+Reduce:
+    if (x) {
+        if (y) {
+            return a;
+        }
+    } else {
+        return b;
+    }
+
+I.e. it becomes ambiguous whether the "else" should be attached to the
+outer or the inner "if".
+
+Choosing to always shift in these situations is conventional, and it
+works fine, rather than going through the work of rewriting the grammar
+to resolve the ambiguity.
