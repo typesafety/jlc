@@ -95,10 +95,6 @@ optExpr :: Expr -> Optimize Expr
 optExpr = \case
   EApp id exprs -> EApp id <$> traverse optExpr exprs
 
-  Neg expr -> do
-    oExpr <- optExpr expr
-    optExpr $ EMul oExpr Times (ELitInt (-1))
-
   Not ELitTrue   -> pure ELitFalse
   Not ELitFalse  -> pure ELitTrue
   Not (Not expr) -> optExpr expr

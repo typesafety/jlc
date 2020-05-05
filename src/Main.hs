@@ -30,10 +30,10 @@ run code = do
   -- Parse
   ast <- toEither $ pProg tokens
 
-  -- Type check. We perform type checking before desugaring and
+  -- Type check. We first perform type checking before desugaring and
   -- other preprocessing, as we want errors to be as helpful as
-  -- possible. However, we perform type checking twice; once
-  -- to throw user errors, and then one later to annotate and
+  -- possible. However, we then perform type checking again; this
+  -- time for type annotation and
   -- to ensure that other preprocessing has not introduced errors.
   TypeChecker.typeCheck ast
 
@@ -45,7 +45,7 @@ run code = do
   let desugaredAst = Desugar.desugar alphaRenamedAst
 
   -- Optimize the AST simplifiying and rewriting some constructs.
-  let optimizedAst = desugaredAst -- OptimizeAST.optimizeAst desugaredAst
+  let optimizedAst = OptimizeAST.optimizeAst desugaredAst
 
   -- Type check again and annotate. A type error here indeicates
   -- a bug in the compiler, not a user error.
@@ -69,8 +69,7 @@ run code = do
       , show err
       ]
 
--- | Read input from a given file name, or from stdin
--- if no file name is given.
+-- | Read input from a file path, or from stdin if no file name is given.
 getInput :: IO String
 getInput = do
   args <- getArgs
@@ -87,7 +86,6 @@ main = do
   case run input of
     Right ast -> do
       hPutStrLn stderr "OK"
-      -- hPrint stderr ast
       putStrLn $ LLVM.Emit.emit ast
       exitSuccess
 
@@ -95,12 +93,3 @@ main = do
       hPutStrLn stderr "ERROR"
       hPrint stderr err
       exitFailure
-
-test fp = do
-  str <- readFile fp
-  case run str of
-    Right ast -> do
-      putStrLn "OK"
-      putStrLn $ LLVM.Emit.emit ast
-      -- writeFile "testout.hs" $ show ast
-    Left err -> print err
