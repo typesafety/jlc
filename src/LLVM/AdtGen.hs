@@ -33,6 +33,7 @@ import Lens.Micro.Platform
 
 import qualified Control.Monad.Reader as R
 import qualified Control.Monad.State.Strict as ST
+import qualified Control.Monad.Writer.Strict as W
 import qualified Data.Map.Strict as M
 import qualified GHC.Stack as Stack
 
@@ -67,7 +68,7 @@ type Types = M.Map Ident Type
 @stGlobalVars@ - Table mapping global variables to string literals.
   Works since Javalette only uses strings as literals, would possibly
   need rework if the language specification changes. The only only
-  operations on this map should be _unique_ insertions and reads.
+  operations on this map should be _unique_ insertions, and reads.
 @stTypes@ - Keeps track of types of variables.
 -}
 data St = St
@@ -127,7 +128,10 @@ fromTrI (TrL _) = error "fromTrI: TrL"
 {- | The monad stack keeps track of function signatures and relevant
 state when traversing the Javalette AST.
 -}
-type Convert a = R.ReaderT Env (ST.State St) a
+type Convert a = R.ReaderT Env (W.WriterT [Translated] (ST.State St)) a
+
+runConvert :: Env -> St -> Convert a -> a
+runConvert e s m = fst $ ST.evalState (W.runWriterT (R.runReaderT m e)) s
 
 --
 -- * "Boilerplate"-like content to include in .ll source files.
@@ -149,8 +153,7 @@ stdExtFunDefs =
 
 -- | Convert a Javalette AST to a LLVM AST.
 convert :: J.Prog -> LLVM
-convert p
-  = ST.evalState (R.runReaderT (convProg p) initEnv) initSt
+convert = runConvert initEnv initSt . convProg
 
 convProg :: J.Prog -> Convert LLVM
 convProg (J.Program topDefs) =
@@ -262,7 +265,7 @@ convTopDef (J.FnDef jType jId jArgs jBlk) = do
 convBlk :: J.Blk -> Convert [BasicBlock]
 convBlk (J.Block stmts) =
   let blockify = map tieUp . buildBlocks . (TrL (Label "entry") :)
-  in blockify . concat <$> mapM convStmt stmts
+  in blockify . snd <$> W.listen (mapM_ convStmt stmts)
   where
     -- Add an "unreachable" instruction to the end of a basic block if
     -- it does not end in a terminator instruction.
@@ -271,34 +274,33 @@ convBlk (J.Block stmts) =
       INoAss (ITerm _) -> inBlk
       _                -> BasicBlock l (is ++ [INoAss $ ITerm Unreachable])
 
-{- | Given a list of labels and instructions, divide the instructions
-into blocks at each label.
--}
-buildBlocks :: Stack.HasCallStack => [Translated] -> [BasicBlock]
-buildBlocks [] = []
-buildBlocks (TrI _ : xs) =
-  error "buildBlocks: encountered non-enclosed instruction"
-buildBlocks (TrL l : xs) = BasicBlock l instructions : rest
-  where
-    (instructions, rest) = case first (map fromTrI) . span isTrI $ xs of
-      ([], remaining) -> ([unreachable], buildBlocks remaining)
-      (xs, remaining) -> (xs,            buildBlocks remaining)
+    -- Given a list of labels and instructions, divide the instructions
+    -- into blocks at each label.
+    buildBlocks :: Stack.HasCallStack => [Translated] -> [BasicBlock]
+    buildBlocks [] = []
+    buildBlocks (TrI _ : xs) =
+      error "buildBlocks: encountered non-enclosed instruction"
+    buildBlocks (TrL l : xs) = BasicBlock l instructions : rest
+      where
+        (instructions, rest) = case first (map fromTrI) . span isTrI $ xs of
+          ([], remaining) -> ([unreachable], buildBlocks remaining)
+          (xs, remaining) -> (xs,            buildBlocks remaining)
 
-    unreachable :: Instruction
-    unreachable = INoAss $ ITerm Unreachable
+        unreachable :: Instruction
+        unreachable = INoAss $ ITerm Unreachable
 
 {- | Convert a JL statment into a list of LLVM instructions and labels.
 The ordering of the list conserves the semantics of the input program.
 -}
-convStmt :: Stack.HasCallStack => J.Stmt -> Convert [Translated]
+convStmt :: Stack.HasCallStack => J.Stmt -> Convert ()
 convStmt s = case s of
-  J.Empty -> pure []
+  J.Empty -> return ()
 
   -- Because we have done alpha-renaming, we don't need to worry
   -- about scoping when encountering variable declarations. We can
   -- assume that variables are only declared once, thus there will
   -- be no ambiguities when referencing variables elsewhere.
-  J.BStmt (J.Block jStmts) -> concat <$> mapM convStmt jStmts
+  J.BStmt (J.Block jStmts) -> mapM_ convStmt jStmts
 
   -- Due to the preprocessing desugaring step, we can expect
   -- there to be only a single Item per declaration statement,
@@ -307,7 +309,8 @@ convStmt s = case s of
     let lVar = transId Local jId
     let lType = transType jType
     bindType lVar (TPointer lType)
-    pure [TrI $ IAss lVar (IMem $ Alloca lType)]
+    return ()
+    -- pure [TrI $ IAss lVar (IMem $ Alloca lType)]
 
   J.Ass jId jExpr -> do
     (instrs, sid) <- second fromJust <$> convExpr jExpr
@@ -315,18 +318,20 @@ convStmt s = case s of
     typeOf (SIdent storeId) >>= \case
       pType@(TPointer typ) -> do
         let storeInstr = INoAss $ IMem $ Store typ sid pType storeId
-        pure $ instrs ++ map TrI [storeInstr]
+        return ()
+        -- pure $ instrs ++ map TrI [storeInstr]
 
   J.Ret jExpr -> do
     (instrs, sid) <- second fromJust <$> convExpr jExpr
     -- Get the return type of our current fucntion.
     retType <- R.asks (fromJust . view envRetType)
     -- Append a ret instruction to the generated instructions.
-    pure $ instrs ++ [TrI $ INoAss $ ITerm $ Ret retType sid]
+    return ()
+    -- pure $ instrs ++ [TrI $ INoAss $ ITerm $ Ret retType sid]
 
-  J.VRet -> pure [TrI $ INoAss $ ITerm VRet]
+  J.VRet -> return () -- pure [TrI $ INoAss $ ITerm VRet]
 
-  J.SExp jExpr -> fst <$> convExpr jExpr
+  J.SExp jExpr -> return () --fst <$> convExpr jExpr
 
   J.If jExpr jStmt -> do
     (condInstrs, condId) <- second fromJust <$> convExpr jExpr
@@ -338,17 +343,18 @@ convStmt s = case s of
     let brInstr = brCond condId ifLabel endLabel
     let brEnd = brUncond endLabel
 
-    return $ mconcat
-      -- Condition
-      [ condInstrs
-      , [TrI brInstr]
-      -- If
-      , [TrL ifLabel]
-      , body
-      , [TrI brEnd]
-      -- End
-      , [TrL endLabel]
-      ]
+    -- return $ mconcat
+    --   -- Condition
+    --   [ condInstrs
+    --   , [TrI brInstr]
+    --   -- If
+    --   , [TrL ifLabel]
+    --   , body
+    --   , [TrI brEnd]
+    --   -- End
+    --   , [TrL endLabel]
+    --   ]
+    return ()
 
   J.IfElse jExpr jS1 jS2 -> do
     (condInstrs, condId) <- second fromJust <$> convExpr jExpr
@@ -362,21 +368,22 @@ convStmt s = case s of
     let brInstr = brCond condId ifLabel elseLabel
     let brEnd = brUncond endLabel
 
-    return $ mconcat
-      -- Condition
-      [ condInstrs
-      , [TrI brInstr]
-      -- If
-      , [TrL ifLabel]
-      , ifBody
-      , [TrI brEnd]
-      -- Else
-      , [TrL elseLabel]
-      , elseBody
-      , [TrI brEnd]
-      -- End
-      , [TrL endLabel]
-      ]
+    -- return $ mconcat
+    --   -- Condition
+    --   [ condInstrs
+    --   , [TrI brInstr]
+    --   -- If
+    --   , [TrL ifLabel]
+    --   , ifBody
+    --   , [TrI brEnd]
+    --   -- Else
+    --   , [TrL elseLabel]
+    --   , elseBody
+    --   , [TrI brEnd]
+    --   -- End
+    --   , [TrL endLabel]
+    --   ]
+    return ()
 
   J.While jExpr jStmt -> do
     (condInstrs, condId) <- second fromJust <$> convExpr jExpr
@@ -389,21 +396,22 @@ convStmt s = case s of
     let brInstr = brCond condId bodyLabel endLabel
     let brStart = brUncond condLabel
 
-    return $ mconcat
-      -- Need to add a branch instruction to get from the previous
-      -- basic block to here, due to no falling through blocks.
-      [ [TrI $ INoAss $ ITerm $ Br condLabel]
-      -- Condition
-      , [TrL condLabel]
-      , condInstrs
-      , [TrI brInstr]
-      -- Body
-      , [TrL bodyLabel]
-      , body
-      , [TrI brStart]
-      -- End
-      , [TrL endLabel]
-      ]
+    -- return $ mconcat
+    --   -- Need to add a branch instruction to get from the previous
+    --   -- basic block to here, due to no falling through blocks.
+    --   [ [TrI $ INoAss $ ITerm $ Br condLabel]
+    --   -- Condition
+    --   , [TrL condLabel]
+    --   , condInstrs
+    --   , [TrI brInstr]
+    --   -- Body
+    --   , [TrL bodyLabel]
+    --   , body
+    --   , [TrI brStart]
+    --   -- End
+    --   , [TrL endLabel]
+    --   ]
+    return ()
 
   -- We do not handle some cases that are expected to disappear in
   -- preprocessing, so we throw an error if encountered.
