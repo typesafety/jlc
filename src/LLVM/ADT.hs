@@ -13,13 +13,6 @@ data LLVM = LLVM
   }
   deriving (Eq, Show)
 
-instance Semigroup LLVM where
-  LLVM as1 bs1 cs1 ds1 <> LLVM as2 bs2 cs2 ds2 =
-    LLVM (as1 ++ as2) (bs1 ++ bs2) (cs1 ++ cs2) (ds1 ++ ds2)
-
-instance Monoid LLVM where
-  mempty = LLVM [] [] [] []
-
 -- * Function definitions
 
 data FunDecl = FunDecl
@@ -102,7 +95,7 @@ data ArithOp
   = Add
   | Sub
   | Mul
-  | Sdiv  -- Unused?
+  | Sdiv
   | Srem
   -- For doubles
   | Fadd
@@ -144,13 +137,6 @@ data FCond
   | FC_OLE
   | FC_ONE
   | FC_ORD
-  -- | FC_UEQ
-  -- | FC_UGT
-  -- | FC_UGE
-  | FC_ULT
-  -- | FC_ULE
-  -- | FC_UNE
-  -- | FC_UNO
   | FC_TRUE
   | FC_FALSE
   deriving (Eq, Show)
@@ -158,10 +144,6 @@ data FCond
 data ICond
   = IC_EQ
   | IC_NE
-  -- | IC_UGT
-  -- | IC_UGE
-  -- | IC_ULT
-  -- | IC_ULE
   | IC_SGT
   | IC_SGE
   | IC_SLT
