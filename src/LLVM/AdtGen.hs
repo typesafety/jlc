@@ -53,7 +53,7 @@ newtype StringLit = StringLit String
 
 type StringTable = M.Map GlobalVar StringLit
 
-type Types = M.Map Ident Type
+type TypeTable = M.Map Ident Type
 
 {-| The carried state:
 @stVarCount@ - Counter for local variable names (suffix).
@@ -64,14 +64,14 @@ type Types = M.Map Ident Type
   Works since Javalette only uses strings as literals, would possibly
   need rework if the language specification changes. The only only
   operations on this map should be _unique_ insertions, and reads.
-@stTypes@ - Keeps track of types of variables.
+@stTypeTable@ - Keeps track of types of variables.
 -}
 data St = St
   { _stGlobalCount :: Int
   , _stVarCount :: Int
   , _stLabelCount :: Int
   , _stGlobalVars :: StringTable
-  , _stTypes :: Types
+  , _stTypeTable :: TypeTable
   }
 
 $(makeLenses ''St)
@@ -222,7 +222,7 @@ convTopDefs (d : ds) = do
     clearSt = ST.modify
       $ set stVarCount 0
       . set stLabelCount 0
-      . set stTypes M.empty
+      . set stTypeTable M.empty
 
 convTopDef :: J.TopDef -> Convert FunDef
 convTopDef (J.FnDef jType jId jArgs jBlk) = do
@@ -253,7 +253,7 @@ convTopDef (J.FnDef jType jId jArgs jBlk) = do
       pis <- paramsInstrs 0 jArgs
       -- We must not forget to add the types of our new  variables
       -- to the state.
-      ST.modify $ set stTypes (M.fromList $ map (jArgToIdType Local) jArgs)
+      ST.modify $ set stTypeTable (M.fromList $ map (jArgToIdType Local) jArgs)
       return pis
 
     paramsInstrs :: Int -> [J.Arg] -> Convert ([Param], [Instruction])
@@ -588,21 +588,22 @@ transType = \case
 
 -- Given a function ID, return its return type and parameters.
 lookupFun :: Stack.HasCallStack => Ident -> Convert (Type, [Type])
-lookupFun id = unsafeLookup id <$> R.asks (view envSigs) >>= \case
-  FunDecl retType _ pTypes -> return (retType, pTypes)
+lookupFun id = do
+  FunDecl retType _ pTypes <- unsafeLookup id <$> view envSigs
+  return (retType, pTypes)
 
 -- | Set the type for a variable.
 bindType :: Stack.HasCallStack => Ident -> Type -> Convert ()
-bindType id typ = ST.modify $ over stTypes $ add id typ
+bindType id typ = ST.modify $ over stTypeTable $ add id typ
   where
-    add :: Stack.HasCallStack => Ident -> Type -> Types -> Types
+    add :: Stack.HasCallStack => Ident -> Type -> TypeTable -> TypeTable
     add i t m = if i `M.notMember` m
                   then M.insert i t m
                   else error "bindType: Attempting to insert existing binding"
 
 -- | Get the type of a Source (variable or literal value).
 typeOf :: Source -> Convert Type
-typeOf (SIdent id) = unsafeLookup id <$> ST.gets (view stTypes)
+typeOf (SIdent id) = unsafeLookup id <$> ST.gets (view stTypeTable)
 typeOf (SVal typ lit) = return $ case lit of
   LInt _    -> typ
   LDouble _ -> TDouble
@@ -613,73 +614,56 @@ typeOf (SVal typ lit) = return $ case lit of
 addGlobalStr :: String -> Convert Ident
 addGlobalStr str = do
   id <- nextGlobal
-  ST.modify $ over stGlobalVars $ M.insert (GlobalVar id) (StringLit str)
+  modifying stGlobalVars $ M.insert (GlobalVar id) (StringLit str)
   return id
 
-setCount :: Lens' St Int -> Int -> Convert ()
-setCount lens n = ST.modify $ set lens n
-
-incrCount :: Lens' St Int -> Convert ()
-incrCount lens = ST.modify $ lens +~ 1
-
-getCount :: Lens' St Int -> Convert Int
-getCount lens = ST.gets $ view lens
-
-next :: Lens' St Int -> (Lens' St Int -> Convert a) -> Convert a
-next lens makeWith = do
-  res <- makeWith lens
-  incrCount lens
+{- | Return the count in the state pointed to by the given lens,
+then increment the count.
+-}
+next :: Lens' St Int -> (Int -> a) -> Convert a
+next lens f = do
+  res <- f <$> use lens
+  lens %= (+ 1)
   return res
 
 {- | Return the next unique label name as an Ident, then
 also increment the counter.
 -}
 nextLabel :: Convert Label
-nextLabel = next stLabelCount getLabel
-  where
-    getLabel :: Lens' St Int -> Convert Label
-    getLabel lens = Label . (labelBase ++) . show <$> getCount lens
+nextLabel = next stLabelCount (Label . (labelBase ++) . show)
 
 {- | Return the next unique global variable name as an Ident, then
 also increment the counter.
 -}
 nextGlobal :: Convert Ident
-nextGlobal = next stGlobalCount getGlobal
-  where
-    getGlobal :: Lens' St Int -> Convert Ident
-    getGlobal lens = L.globalId . (globalBase ++) . show <$> getCount lens
+nextGlobal = next stGlobalCount (L.globalId . (globalBase ++) . show)
 
 {- | Return the next unique local variable name as an Ident, then
 also increment the counter.
 -}
 nextVar :: Convert Ident
-nextVar = next stVarCount getVar
-  where
-    getVar :: Lens' St Int -> Convert Ident
-    getVar lens = L.localId . (varBase ++) . show <$> getCount lens
+nextVar = next stVarCount (L.localId . (varBase ++) . show)
 
 {- | The base variable names, onto which the incrementing suffix is
 appended. NOTE that these need to be different from the @varBase@ defined
 in the alpha renaming phase, to avoid overlapping and collision of
 variables.
 -}
-varBase :: String
-varBase = "var"
-
-globalBase :: String
+varBase, globalBase, labelBase :: String
+varBase    = "var"
 globalBase = "gvar"
-
-labelBase :: String
-labelBase = "label"
+labelBase  = "label"
 
 --
 -- * Other helper functions
 --
 
+-- Replacement for Maybe.fromJust to include stack trace.
 fromJust :: Stack.HasCallStack => Maybe a -> a
 fromJust Nothing  = error "fromJust: Nothing"
 fromJust (Just a) = a
 
+-- Unsafe variant of Map.lookup, includes stack trace.
 unsafeLookup :: (Stack.HasCallStack, Ord k, Show k) => k -> M.Map k a -> a
 unsafeLookup k m = case M.lookup k m of
   Just v  -> v
