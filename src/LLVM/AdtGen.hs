@@ -376,61 +376,58 @@ convStmt s = case s of
   stmt -> error $ "genInstrs: Unexpected Javalette stmt:\n" ++ show stmt
 
 {- | Convert a Javalette expression to a series of instructions. Return
-the instructions and the result as a Source (id or variable). Result is
-Nothing if the type of the result was Void.
+the result as a Source, containing the variable in which the result is
+stored, or the literal value. Result is a null literal if neither
+of the earlier applies.
 -}
-convExpr
-  :: Stack.HasCallStack
-  => J.Expr
-  -> Convert ([Translated], Maybe Source)
+convExpr :: Stack.HasCallStack => J.Expr -> Convert Source
 convExpr e = case e of
   J.EVar jId -> do
     let lId = transId Local jId
     ptrType <- typeOf $ SIdent lId
-    let valType = case ptrType of
-          TPointer typ -> typ
-          _ -> error "convExpr: Load from non-pointer type"
-    assId <- nextVar
-    let instr = IAss assId $ IMem $ Load valType ptrType lId
-    bindType assId valType >> return ([TrI instr], Just $ SIdent assId)
+    -- Type when accessing a variable must be a pointer type, crash otherwise.
+    let TPointer valType = ptrType 
 
-  -- Hardcoded for the printString case. In case the language gets
-  -- extended with other functions with pointer parameters, this
-  -- should be genrealaized.
+    assId <- nextVar
+    tellI $ (assId `L.load` valType) ptrType lId
+
+    bindRetId assId valType
+
+  -- Hardcoded case for printString.
   J.EApp jId@(J.Ident "printString") [jExpr] -> do
-    (is, arrPtrV) <- second fromJust <$> convExpr jExpr
-    -- arrPtrV is a variable of type [n x i8]*
-    t <- typeOf arrPtrV
-    let (TPointer arrType) = t
     let funId = transId Global jId
 
-    strStartPtr <- nextVar
-    -- Lots of hard-coded stuff here currently.
-    let insArgs = [(t, arrPtrV), (i32, srcLitN i32 0), (i32, srcLitN i32 0)]
-    let getPtrInstr = IAss strStartPtr $ IMem $ GetElementPtr arrType insArgs
-    let funArgs = [Arg (TPointer i8) (SIdent strStartPtr)]
-    let callInstr = INoAss $ IOther $ Call TVoid funId funArgs
+    arrPtr <- convExpr jExpr
+    -- arrPtrV is a variable of type [n x i8]*
+    arrPtrType <- typeOf arrPtr
+    let (TPointer arrType) = t
+    ptr <- nextVar
 
-    return (is ++ map TrI [getPtrInstr, callInstr], Nothing)
+    let args = [ (arrPtrType, arrPtr)
+               , (L.i32, L.srcI32 0)
+               , (L.i32, L.srcI32 0)
+               ]
+    tellI $ (ptr `L.getelementptr` arrType) args
+    let funArgs = [Arg (L.toPtr L.i8) (SIdent ptr)]
+    tellI $ L.callV funId funArgs
 
+    retLit LNull
 
   J.EApp jId jExprs -> do
     let funId = transId Global jId
-    (retType, paramTypes) <- lookupFun funId
-    (instrss, argVars) <- unzip <$> mapM convExpr jExprs
 
-    let args = zipWith Arg paramTypes (map fromJust argVars)
+    (retType, paramTypes) <- lookupFun funId
+    paramSrcs <- mapM convExpr jExprs
+    let args = zipWith Arg paramTypes paramSrcs
 
     case retType of
       TVoid -> do
-        let callInstr = INoAss $ IOther $ Call retType funId args
-        return (concat instrss ++ [TrI callInstr], Nothing)
+        tellI $ L.callV funId args
+        retLit LNull
       _ -> do
         assId <- nextVar
-        let callInstr = IAss assId $ IOther $ Call retType funId args
-
-        bindType assId retType >>
-          return (concat instrss ++ [TrI callInstr], Just $ SIdent assId)
+        tellI $ (assId `L.call`) retType funId args
+        bindRetId assId retType
 
   J.EString str -> do
     gId <- addGlobalStr str
@@ -648,6 +645,16 @@ convExpr e = case e of
 
     wrapL :: Label -> [Translated]
     wrapL l = [TrL l]
+
+    bindRetId :: Ident -> Type -> Convert Source
+    bindRetId id typ = bindType id typ >> retId id
+
+    retId :: Ident -> Convert Source
+    retId id = return $ SIdent id
+
+    retLit :: Type -> Lit -> Convert Source
+    retLit typ lit = return $ SVal typ lit
+
 
 --
 -- * Functions for translating from Javalette ADT to LLVM ADT.
