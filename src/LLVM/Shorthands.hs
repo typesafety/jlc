@@ -64,29 +64,36 @@ srcI32 :: Int -> Source
 srcI32 = srcLitN i32
 
 srcTrue, srcFalse :: Source
-srcTrue  = srcLitN i1 1
-srcFalse = srcLitN i1 0
+srcTrue  = srcLitN bool 1
+srcFalse = srcLitN bool 0
 
-srcLitNull :: Source
-srcLitNull = SLit TNull LNull
+srcNull :: Source
+srcNull = SVal TNull LNull
 
 --
--- * Instruction shorthands.
+-- * Instruction shorthands (memory)
 --
+
+getelementptr :: Ident -> Type -> [(Type, Source)] -> Instruction
+getelementptr id t args = IAss id (IMem $ GetElementPtr t args)
 
 alloca :: Ident -> Type -> Instruction
 alloca i t = IAss i (IMem $ Alloca t)
 
 store :: Type -> Source -> Type -> Ident -> Instruction
-store valType srcId ptrType storeToId =
-  INoAss $ IMem $ Store valType srcId ptrType storeToId
+store srcType src ptrType storeToId =
+  INoAss $ IMem $ Store srcType src ptrType storeToId
 
-load :: Ident -> Type -> Type -> Ident
+load :: Ident -> Type -> Type -> Ident -> Instruction
 load storeToId valType ptrType storeFromId =
   IAss storeToId (IMem $ Load valType ptrType storeFromId)
 
-ret :: Type -> Ident -> Instruction
-ret t i = INoAss $ ITerm $ Ret t i
+--
+-- * Instruction shorthands (terminators)
+--
+
+ret :: Type -> Source -> Instruction
+ret t s = INoAss $ ITerm $ Ret t s
 
 vret :: Instruction
 vret = INoAss $ ITerm VRet
@@ -97,16 +104,24 @@ brCond s l1 l2 = INoAss $ ITerm $ BrCond s l1 l2
 brUncond :: Label -> Instruction
 brUncond l = INoAss $ ITerm $ Br l
 
-getelementptr :: Ident -> Type -> [(Type, Source)] -> Instruction
-getelementptr id t args = IAss id (IMem $ GetElementPtr t args)
+--
+-- * Instruction shorthands (other)
+--
 
 callV :: Ident -> [Arg] -> Instruction
 callV funId args = INoAss $ IOther $ Call TVoid funId args
 
-call :: Type -> Ident -> [Arg] -> Instruction
+call :: Ident -> Type -> Ident -> [Arg] -> Instruction
 call assId retType funId args = IAss assId (IOther $ Call retType funId args)
 
+--
+-- * Instruction shorthands (arithmetic)
+--
+
 type ArithIns = Ident -> Type -> Source -> Source -> Instruction
+
+arith :: ArithOp -> ArithIns
+arith op assId retType s1 s2 = IAss assId (IArith op retType s1 s2)
 
 add :: ArithIns
 add = arith Add
@@ -135,11 +150,27 @@ fdiv = arith Fdiv
 srem :: ArithIns
 srem = arith Srem
 
-arith :: ArithOp -> ArithIns
-arith op assId retType s1 s2 = IAss assId (IArith op retType s1 s2)
+--
+-- * Instruction shorthands (comparison)
+--
 
-xor :: Ident -> Type -> Source -> Source -> Instruction
+icmp :: Ident -> ICond -> Type -> Source -> Source -> Instruction
+icmp assId cond t s1 s2 = IAss assId (IOther $ Icmp cond t s1 s2)
+
+fcmp :: Ident -> FCond -> Type -> Source -> Source -> Instruction
+fcmp assId cond t s1 s2 = IAss assId (IOther $ Fcmp cond t s1 s2)
+
+--
+-- * Instruction shorthands (bitwise)
+--
+
+type BitwiseIns = Ident -> Type -> Source -> Source -> Instruction
+
+xor :: BitwiseIns
 xor assId retType s1 s2 = IAss assId (IBitwise $ Xor retType s1 s2)
 
+and :: BitwiseIns
+and assId retType s1 s2 = IAss assId (IBitwise $ And retType s1 s2)
 
-
+or :: BitwiseIns
+or assId retType s1 s2 = IAss assId (IBitwise $ Or retType s1 s2)

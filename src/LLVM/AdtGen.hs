@@ -141,11 +141,11 @@ runConvert e s m = fst $ ST.evalState (W.runWriterT (R.runReaderT m e)) s
 -- | Some external function definitions that should always be included.
 stdExtFunDefs :: [FunDecl]
 stdExtFunDefs =
-  [ FunDecl i32     (globalId "readInt")     []
-  , FunDecl TDouble (globalId "readDouble")  []
-  , FunDecl TVoid   (globalId "printInt")    [i32]
-  , FunDecl TVoid   (globalId "printDouble") [TDouble]
-  , FunDecl TVoid   (globalId "printString") [TPointer i8]
+  [ FunDecl L.i32   (L.globalId "readInt")     []
+  , FunDecl TDouble (L.globalId "readDouble")  []
+  , FunDecl TVoid   (L.globalId "printInt")    [L.i32]
+  , FunDecl TVoid   (L.globalId "printDouble") [TDouble]
+  , FunDecl TVoid   (L.globalId "printString") [L.toPtr L.i8]
   ]
 
 --
@@ -176,8 +176,8 @@ convProg (J.Program topDefs) =
     toVarDef (GlobalVar id, StringLit str) =
         -- String variables have type [n x i8]*, here we write [n x i8]
         -- though, since it's the type of the actual string constant.
-      let TPointer strConstType = strType str
-      in VarDef id strConstType (SVal (strType str) (LString str))
+      let TPointer strConstType = L.strType str
+      in VarDef id strConstType (SVal (L.strType str) (LString str))
 
     progDecls :: Signatures
     progDecls = M.fromList $ zip (map getId decls) decls
@@ -310,7 +310,7 @@ convStmt s = case s of
     let lId = transId Local jId
     let lType = transType jType
 
-    bindType lId (toPtr lType)
+    bindType lId (L.toPtr lType)
     tellI $ lId `L.alloca` lType
 
   J.Ass jId jExpr -> do
@@ -349,10 +349,10 @@ convStmt s = case s of
     tellI $ L.brCond condRes ifLabel elseLabel
     tellL ifLabel
     convStmt sT
-    tellI $ L.brUnCond endLabel
+    tellI $ L.brUncond endLabel
     tellL elseLabel
     convStmt sF
-    tellI $ L.brUnCond endLabel
+    tellI $ L.brUncond endLabel
     tellL endLabel
 
   J.While eCond sBody -> do
@@ -400,7 +400,7 @@ convExpr e = case e of
     arrPtr <- convExpr jExpr
     -- arrPtrV is a variable of type [n x i8]*
     arrPtrType <- typeOf arrPtr
-    let (TPointer arrType) = t
+    let (TPointer arrType) = arrPtrType
     ptr <- nextVar
 
     let args = [ (arrPtrType, arrPtr)
@@ -411,7 +411,7 @@ convExpr e = case e of
     let funArgs = [Arg (L.toPtr L.i8) (SIdent ptr)]
     tellI $ L.callV funId funArgs
 
-    retLit LNull
+    return L.srcNull
 
   J.EApp jId jExprs -> do
     let funId = transId Global jId
@@ -423,7 +423,7 @@ convExpr e = case e of
     case retType of
       TVoid -> do
         tellI $ L.callV funId args
-        retLit LNull
+        return L.srcNull 
       _ -> do
         assId <- nextVar
         tellI $ (assId `L.call`) retType funId args
@@ -434,19 +434,19 @@ convExpr e = case e of
   J.Neg jExpr -> do
     assId <- nextVar
     srcId <- convExpr jExpr
-    typeOf srcId >>= \case
+    retType <- typeOf srcId
+    case retType of
       TNBitInt 32 -> tellI $ (assId `L.mul` L.i32) srcId (L.srcI32 (-1))
       TDouble     -> tellI $ (assId `L.fmul` TDouble) srcId (L.srcD (-1))
-    bindRetId assId
+    bindRetId assId retType
 
   J.Not jExpr -> do
     assId <- nextVar
     srcId <- convExpr jExpr
-    retType <- typeOf srcId
-    tellI $ (assId `L.xor` retType) srcId L.srcTrue
-    bindRetId assId
+    tellI $ (assId `L.xor` L.bool) srcId L.srcTrue
+    bindRetId assId L.bool
 
-  J.EAdd jE1 jOp jE2 -> convArithOp jE1 jE2 jOp getOp
+  J.EAdd jE1 jOp jE2 -> convArithOp jE1 jE2 (Left jOp) getOp
     where
       getOp (Left jOp) retType = case (jOp, retType) of 
           (J.Plus,  TNBitInt _) -> Add
@@ -454,7 +454,7 @@ convExpr e = case e of
           (J.Minus, TNBitInt _) -> Sub
           (J.Minus, TDouble)    -> Fsub
 
-  J.EMul jE1 jOp jE2 -> convArithOp jE1 jE2 jOp getOp
+  J.EMul jE1 jOp jE2 -> convArithOp jE1 jE2 (Right jOp) getOp
     where
       getOp (Right jOp) retType = case (jOp, retType) of 
         (J.Times, TNBitInt _) -> Mul
@@ -463,150 +463,81 @@ convExpr e = case e of
         (J.Div,   TDouble)    -> Fdiv
         (J.Mod,   TNBitInt _) -> Srem
 
-
-  -- TODO HERE:
   J.ERel jE1 jOp jE2 -> do
-    (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
-    let relOpC = getOpC jOp sid1Type
-    let ins    = IAss assId $ IOther $ relOpC sid1Type sid1 sid2
-
-    bindType assId bool
-      >> return (instrs1 ++ instrs2 ++ [TrI ins], Just $ SIdent assId)
-
+    res1 <- convExpr jE1
+    res2 <- convExpr jE2
+    opType <- typeOf res1
+    assId <- nextVar
+    tellI $ getIns jOp opType assId res1 res2
+    bindRetId assId L.bool
     where
-      getOpC :: J.RelOp -> Type -> (Type -> Source -> Source -> OtherOp)
-      getOpC jOp typ = case (jOp, typ) of
-        (J.LTH, TNBitInt _) -> Icmp IC_SLT
-        (J.LTH, TDouble)    -> Fcmp FC_OLT
-        (J.LE,  TNBitInt _) -> Icmp IC_SLE
-        (J.LE,  TDouble)    -> Fcmp FC_OLE
-        (J.GTH, TNBitInt _) -> Icmp IC_SGT
-        (J.GTH, TDouble)    -> Fcmp FC_OGT
-        (J.GE,  TNBitInt _) -> Icmp IC_SGE
-        (J.GE,  TDouble)    -> Fcmp FC_OGE
-        (J.EQU, TNBitInt _) -> Icmp IC_EQ
-        (J.EQU, TDouble)    -> Fcmp FC_OEQ
-        (J.NE,  TNBitInt _) -> Icmp IC_NE
-        (J.NE,  TDouble)    -> Fcmp FC_ONE
+      getIns :: J.RelOp -> Type -> Ident -> (Source -> Source -> Instruction)
+      getIns jOp typ id = case (jOp, typ) of
+        (J.LTH, TNBitInt _) -> L.icmp id IC_SLT typ
+        (J.LTH, TDouble)    -> L.fcmp id FC_OLT typ
+        (J.LE,  TNBitInt _) -> L.icmp id IC_SLE typ
+        (J.LE,  TDouble)    -> L.fcmp id FC_OLE typ
+        (J.GTH, TNBitInt _) -> L.icmp id IC_SGT typ
+        (J.GTH, TDouble)    -> L.fcmp id FC_OGT typ
+        (J.GE,  TNBitInt _) -> L.icmp id IC_SGE typ
+        (J.GE,  TDouble)    -> L.fcmp id FC_OGE typ
+        (J.EQU, TNBitInt _) -> L.icmp id IC_EQ  typ
+        (J.EQU, TDouble)    -> L.fcmp id FC_OEQ typ
+        (J.NE,  TNBitInt _) -> L.icmp id IC_NE  typ
+        (J.NE,  TDouble)    -> L.fcmp id FC_ONE typ
 
-  -- TODO: AND and OR shoudl have "lazy" behaviour (skip evaluating
-  -- 2nd operand if unnecessary).
-  -- TODO: EAnd/EOr are very similar; generalize?
+  J.EAnd jE1 jE2 -> lazyLogic jE1 jE2 And{}
 
-  J.EAnd jE1 jE2 -> do
-    (inss1, sid1) <- second fromJust <$> convExpr jE1
-    (inss2, sid2) <- second fromJust <$> convExpr jE2
+  J.EOr jE1 jE2 -> lazyLogic jE1 jE2 Or{}
 
-    -- Needed labels
-    lbls <- replicateM 4 nextLabel
-    let [lEvalSnd, lWriteT, lWriteF, lEnd] = lbls
-
-    -- (Start) Allocate memory for storing the result of the expression.
-    resMem <- nextVar
-    let insResMem = IAss resMem (IMem $ Alloca bool)
-    -- Evaluate the first expression and branch.
-    e1res <- nextVar
-    let ins1   = IAss e1res (IBitwise $ And i1 sid1 srcTrue)
-    let insBr1 = brCond (SIdent e1res) lEvalSnd lWriteF
-
-    -- (lEvalSnd) Evaluate the second expression and branch.
-    e2res <- nextVar
-    let ins2   = IAss e2res (IBitwise $ And i1 sid2 srcTrue)
-    let insBr2 = brCond (SIdent e2res) lWriteT lWriteF
-
-    -- (lWriteT) Store true.
-    let insWriteT = bWrite True  resMem
-    -- (lWriteF) Store false.
-    let insWriteF = bWrite False resMem
-    -- Jump to end.
-    let insDone = brUncond lEnd
-
-    -- (lEnd) Load the result.
-    res <- nextVar
-    let insLoadRes = IAss res (IMem $ Load i1 (toPtr i1) resMem)
-
-    -- List of Translated.
-    let output = mconcat
-          [ inss1
-          , [ TrI insResMem, TrI ins1, TrI insBr1 ]
-          , TrL lEvalSnd : inss2
-          , [ TrI ins2, TrI insBr2 ]
-          , [ TrL lWriteT, TrI insWriteT, TrI insDone
-            , TrL lWriteF, TrI insWriteF, TrI insDone
-            , TrL lEnd,    TrI insLoadRes
-            ]
-          ]
-    bindType res bool >> return (output, Just (SIdent res))
-
-    where
-      -- Write true (1) or false (0) to a given Ident, which must be a i1*.
-      bWrite :: Bool -> Ident -> Instruction
-      bWrite b id =
-        let v = if b then srcLitN i1 1 else srcLitN i1 0
-        in INoAss $ IMem $ Store i1 v (toPtr i1) id
-
-  J.EOr jE1 jE2 -> do
-    (inss1, sid1) <- second fromJust <$> convExpr jE1
-    (inss2, sid2) <- second fromJust <$> convExpr jE2
-
-    -- Needed labels
-    lbls <- replicateM 4 nextLabel
-    let [lEvalSnd, lWriteT, lWriteF, lEnd] = lbls
-
-    -- (Start) Allocate memory for storing the result of the expression.
-    resMem <- nextVar
-    let insResMem = IAss resMem (IMem $ Alloca bool)
-    -- Evaluate the first expression and branch.
-    e1res <- nextVar
-    let ins1   = IAss e1res (IBitwise $ And i1 sid1 srcTrue)
-    let insBr1 = brCond (SIdent e1res) lWriteT lEvalSnd
-
-    -- (lEvalSnd) Evaluate the second expression and branch.
-    e2res <- nextVar
-    let ins2   = IAss e2res (IBitwise $ And i1 sid2 srcTrue)
-    let insBr2 = brCond (SIdent e2res) lWriteT lWriteF
-
-    -- (lWriteT) Store true.
-    let insWriteT = bWrite True  resMem
-    -- (lWriteF) Store false.
-    let insWriteF = bWrite False resMem
-    -- Jump to end.
-    let insDone = brUncond lEnd
-
-    -- (lEnd) Load the result.
-    res <- nextVar
-    let insLoadRes = IAss res (IMem $ Load i1 (toPtr i1) resMem)
-
-    -- List of Translated.
-    let output = mconcat
-          [ inss1
-          , [ TrI insResMem, TrI ins1, TrI insBr1 ]
-          , TrL lEvalSnd : inss2
-          , [ TrI ins2, TrI insBr2 ]
-          , [ TrL lWriteT, TrI insWriteT, TrI insDone
-            , TrL lWriteF, TrI insWriteF, TrI insDone
-            , TrL lEnd,    TrI insLoadRes
-            ]
-          ]
-    bindType res bool >> return (output, Just (SIdent res))
-
-    where
-      -- Write true (1) or false (0) to a given Ident, which must be a i1*.
-      bWrite :: Bool -> Ident -> Instruction
-      bWrite b id =
-        let v = if b then srcLitN i1 1 else srcLitN i1 0
-        in INoAss $ IMem $ Store i1 v (toPtr i1) id
-
-  J.ELitInt n    -> return ([], Just $ srcI32 (fromIntegral n))
-  J.ELitDouble d -> return ([], Just $ srcLitD d)
-  J.ELitTrue     -> return ([], Just srcTrue)
-  J.ELitFalse    -> return ([], Just srcFalse)
+  J.ELitInt n    -> return $ L.srcI32 (fromIntegral n)
+  J.ELitDouble d -> return $ L.srcD d
+  J.ELitTrue     -> return   L.srcTrue
+  J.ELitFalse    -> return   L.srcFalse
 
   -- Forgot that we annotated during type checking...
   -- TODO: rewrite code to make use of type annotation.
   J.AnnExp jExpr jType -> convExpr jExpr
 
   where
+    -- For lazy AND/OR
+    lazyLogic
+      :: J.Expr
+      -> J.Expr
+      -> BitwiseOp
+      -> Convert Source
+    lazyLogic jE1 jE2 op = do
+      lbls <- replicateM 4 nextLabel
+      let [lEvalSnd, lWriteT, lWriteF, lEnd] = lbls
+
+      memRes <- nextVar
+      tellI $ L.alloca memRes L.bool
+
+      e1res <- convExpr jE1
+      case op of
+        And{} -> tellI $ L.brCond e1res lEvalSnd lWriteF
+        Or{}  -> tellI $ L.brCond e1res lWriteT lEvalSnd
+
+      tellL lEvalSnd
+      e2res <- convExpr jE2
+      case op of
+        And{} -> tellI $ L.brCond e2res lWriteT lWriteF
+        Or{}  -> tellI $ L.brCond e2res lWriteT lWriteF
+
+      tellL   lWriteT
+      tellI $ L.store L.bool L.srcTrue (L.toPtr L.bool) memRes
+      tellI $ L.brUncond lEnd
+
+      tellL   lWriteF
+      tellI $ L.store L.bool L.srcFalse (L.toPtr L.bool) memRes
+      tellI $ L.brUncond lEnd
+
+      tellL   lEnd
+      res <- nextVar
+      tellI $ L.load res L.bool (L.toPtr L.bool) memRes
+
+      bindRetId res L.bool
+
     convArithOp
       :: J.Expr
       -> J.Expr
@@ -619,7 +550,7 @@ convExpr e = case e of
       retType <- typeOf srcId1
       assId <- nextVar
       tellI $ L.arith (getOp jOp retType) assId retType srcId1 srcId2
-      bindRetId assId
+      bindRetId assId retType
 
     bindRetId :: Ident -> Type -> Convert Source
     bindRetId id typ = bindType id typ >> retId id
@@ -643,9 +574,9 @@ transParam (J.Argument jType jId) = Param (transType jType) (transId Local jId)
 
 transType :: Stack.HasCallStack => J.Type -> Type
 transType = \case
-  J.Int    -> i32
+  J.Int    -> L.i32
   J.Double -> TDouble
-  J.Bool   -> bool
+  J.Bool   -> L.bool
   J.Void   -> TVoid
   J.Str    -> error "String type needs special care"
 
@@ -679,7 +610,7 @@ typeOf (SVal typ lit) = return $ case lit of
   LInt _    -> typ
   LDouble _ -> TDouble
   LNull     -> TNull
-  LString s -> strType s
+  LString s -> L.strType s
 
 -- | Add a string as a global variable and return its Ident.
 addGlobalStr :: String -> Convert Ident
@@ -719,7 +650,7 @@ nextGlobal :: Convert Ident
 nextGlobal = next stGlobalCount getGlobal
   where
     getGlobal :: Lens' St Int -> Convert Ident
-    getGlobal lens = globalId . (globalBase ++) . show <$> getCount lens
+    getGlobal lens = L.globalId . (globalBase ++) . show <$> getCount lens
 
 {- | Return the next unique local variable name as an Ident, then
 also increment the counter.
@@ -728,7 +659,7 @@ nextVar :: Convert Ident
 nextVar = next stVarCount getVar
   where
     getVar :: Lens' St Int -> Convert Ident
-    getVar lens = localId . (varBase ++) . show <$> getCount lens
+    getVar lens = L.localId . (varBase ++) . show <$> getCount lens
 
 {- | The base variable names, onto which the incrementing suffix is
 appended. NOTE that these need to be different from the @varBase@ defined
