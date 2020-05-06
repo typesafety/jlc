@@ -85,7 +85,6 @@ type Signatures = M.Map Ident FunDecl
 @envSigs@ - Table of mappings from function Idents to their return types and
   argument types. For now, all Idents should be of global scope.
 @envRetType@ - When inside a function, this is its return type.
-@envParamIds@ - When inside a function, these are the function's parameters.
 -}
 data Env = Env
   { _envSigs :: Signatures
@@ -173,7 +172,7 @@ convProg (J.Program topDefs) =
   -- Add the function signatures from the JL definitions.
   R.local (over envSigs $ M.union progDecls) $ do
     funDefs <- convTopDefs topDefs -- TODO: RESET CERTAIN STATE AFTER EACH DEF
-    varDefs <- map toVarDef . M.toList <$> ST.gets (view stGlobalVars)
+    varDefs <- map toVarDef . M.toList <$> use stGlobalVars
     let funDecls = stdExtFunDefs
     return $ LLVM 
       { llvmTypeDefs = []  -- Not implemented for now.
@@ -219,10 +218,9 @@ convTopDefs (d : ds) = do
   where
     -- Reset parts of the state between function definitions.
     clearSt :: Convert ()
-    clearSt = ST.modify
-      $ set stVarCount 0
-      . set stLabelCount 0
-      . set stTypeTable M.empty
+    clearSt = stTypeTable  .= M.empty
+           >> stLabelCount .= 0
+           >> stVarCount   .= 0
 
 convTopDef :: J.TopDef -> Convert FunDef
 convTopDef (J.FnDef jType jId jArgs jBlk) = do
@@ -251,9 +249,9 @@ convTopDef (J.FnDef jType jId jArgs jBlk) = do
     fixParams jArgs = do
       -- Create the parameters and extra instructions.
       pis <- paramsInstrs 0 jArgs
-      -- We must not forget to add the types of our new  variables
+      -- We must not forget to add the types of our new variables
       -- to the state.
-      ST.modify $ set stTypeTable (M.fromList $ map (jArgToIdType Local) jArgs)
+      assign stTypeTable (M.fromList $ map (jArgToIdType Local) jArgs)
       return pis
 
     paramsInstrs :: Int -> [J.Arg] -> Convert ([Param], [Instruction])
@@ -330,7 +328,7 @@ convStmt s = case s of
 
   J.Ret jExpr -> do
     srcId <- convExpr jExpr
-    retType <- R.asks (fromJust . view envRetType)
+    retType <- fromJust <$> view envRetType
     tellI $ L.ret retType srcId
 
   J.VRet -> tellI L.vret
@@ -566,9 +564,6 @@ convExpr e = case e of
 transId :: Scope -> J.Ident -> Ident
 transId scope (J.Ident str) = Ident scope str
 
-transParam :: J.Arg -> Param
-transParam (J.Argument jType jId) = Param (transType jType) (transId Local jId)
-
 transType :: Stack.HasCallStack => J.Type -> Type
 transType = \case
   J.Int    -> L.i32
@@ -576,11 +571,6 @@ transType = \case
   J.Bool   -> L.bool
   J.Void   -> TVoid
   J.Str    -> error "String type needs special care"
-
---
--- * Helper function for LLVM ADT constructors.
---
-
 
 --
 -- * State-related helper functions.
@@ -594,27 +584,23 @@ lookupFun id = do
 
 -- | Set the type for a variable.
 bindType :: Stack.HasCallStack => Ident -> Type -> Convert ()
-bindType id typ = ST.modify $ over stTypeTable $ add id typ
+bindType id typ = modifying stTypeTable $ insert id typ
   where
-    add :: Stack.HasCallStack => Ident -> Type -> TypeTable -> TypeTable
-    add i t m = if i `M.notMember` m
-                  then M.insert i t m
-                  else error "bindType: Attempting to insert existing binding"
+    insert  :: Stack.HasCallStack => Ident -> Type -> TypeTable -> TypeTable
+    insert i t m = if i `M.notMember` m
+      then M.insert i t m
+      else error "bindType: Attempting to insert existing binding"
 
 -- | Get the type of a Source (variable or literal value).
 typeOf :: Source -> Convert Type
-typeOf (SIdent id) = unsafeLookup id <$> ST.gets (view stTypeTable)
-typeOf (SVal typ lit) = return $ case lit of
-  LInt _    -> typ
-  LDouble _ -> TDouble
-  LNull     -> TNull
-  LString s -> L.strType s
+typeOf (SIdent id)     = unsafeLookup id <$> use stTypeTable
+typeOf (SVal typ _lit) = return typ
 
 -- | Add a string as a global variable and return its Ident.
 addGlobalStr :: String -> Convert Ident
 addGlobalStr str = do
   id <- nextGlobal
-  modifying stGlobalVars $ M.insert (GlobalVar id) (StringLit str)
+  modifying stGlobalVars (M.insert (GlobalVar id) (StringLit str))
   return id
 
 {- | Return the count in the state pointed to by the given lens,
@@ -623,7 +609,7 @@ then increment the count.
 next :: Lens' St Int -> (Int -> a) -> Convert a
 next lens f = do
   res <- f <$> use lens
-  lens %= (+ 1)
+  lens += 1
   return res
 
 {- | Return the next unique label name as an Ident, then
