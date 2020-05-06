@@ -1,14 +1,13 @@
 > How to use:
 
-After generating the executable `jlc` by running `make all` in the project
-root, the compiler can be run as an executable with one Javalette source
-file as its argument. Alternatively, the executable can read from stdin.
+After generating the executable `jlc` by running `make all` or `make jlc`
+in the project root, the compiler can be run as an executable with
+a single Javalette source file as its argument. Alternatively, the
+executable can read input from from stdin.
 
 Running the executable will write the contents of a generated .ll
 file to stdout. Redirect the output (with ">", for example) in order
 to write to a file.
->> TODO: include more of the toolchain (call llvm-as, linking etc.)
-         in the executable
 
 The compiler performs the following steps:
 

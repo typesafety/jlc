@@ -9,9 +9,6 @@ other preprocessing/optimizations, such as desugaring.
 -- TODO: Currently does not make use of the type annotations from
 --       the type checking phase! Code could probably be vastly simplified
 --       with a bit of rewriting.
--- TODO: Currently there is a lot of manual concatenation of Translated
---       objects throughout convExpr. This could probably be abstracted
---       away by using Writer.
 -- TODO: Currently the carried State is quite spread out and messy, could
 --       possibly be simplified?
 -- TODO: (Goes for other modules as well) Errors thrown here should be
@@ -38,8 +35,8 @@ import qualified Data.Map.Strict as M
 import qualified GHC.Stack as Stack
 
 import LLVM.ADT
-import qualified LLVM.Shorthands as L
 
+import qualified LLVM.Shorthands as L
 import qualified Javalette.Abs as J
 
 
