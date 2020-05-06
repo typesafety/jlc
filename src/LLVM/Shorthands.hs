@@ -104,6 +104,9 @@ brCond s l1 l2 = INoAss $ ITerm $ BrCond s l1 l2
 brUncond :: Label -> Instruction
 brUncond l = INoAss $ ITerm $ Br l
 
+unreachable :: Instruction
+unreachable = INoAss $ ITerm Unreachable
+
 --
 -- * Instruction shorthands (other)
 --

@@ -21,11 +21,8 @@ module LLVM.AdtGen
        ( convert
        ) where
 
-import Debug.Trace
-
 import Control.Monad (replicateM, void)
-import Data.Bifunctor (first, second)
-import Data.Functor ((<&>))
+import Data.Bifunctor (first)
 import Lens.Micro.Platform
 
 import qualified Control.Monad.Reader as R
@@ -261,16 +258,16 @@ convTopDef (J.FnDef jType jId jArgs jBlk) = do
       (transId scope jId, TPointer $ transType jType)
 
 convBlk :: J.Blk -> Convert [BasicBlock]
-convBlk (J.Block stmts) =
-  let blockify = map tieUp . buildBlocks . (TrL (Label "entry") :)
-  in blockify . snd <$> W.listen (mapM_ convStmt stmts)
+convBlk (J.Block stmts) = do
+  (a, w) <- W.listen $ tellL (Label "entry") >> mapM_ convStmt stmts
+  return $ (map tieUp . buildBlocks) w
   where
     -- Add an "unreachable" instruction to the end of a basic block if
     -- it does not end in a terminator instruction.
     tieUp :: Stack.HasCallStack => BasicBlock -> BasicBlock
     tieUp inBlk@(BasicBlock l is) = case last is of
       INoAss (ITerm _) -> inBlk
-      _                -> BasicBlock l (is ++ [INoAss $ ITerm Unreachable])
+      _                -> BasicBlock l (is ++ [L.unreachable])
 
     -- Given a list of labels and instructions, divide the instructions
     -- into blocks at each label.
@@ -281,11 +278,8 @@ convBlk (J.Block stmts) =
     buildBlocks (TrL l : xs) = BasicBlock l instructions : rest
       where
         (instructions, rest) = case first (map fromTrI) . span isTrI $ xs of
-          ([], remaining) -> ([unreachable], buildBlocks remaining)
-          (xs, remaining) -> (xs,            buildBlocks remaining)
-
-        unreachable :: Instruction
-        unreachable = INoAss $ ITerm Unreachable
+          ([], remaining) -> ([L.unreachable], buildBlocks remaining)
+          (xs, remaining) -> (xs,              buildBlocks remaining)
 
 {- | Convert a JL statment into a list of LLVM instructions and labels.
 The ordering of the list conserves the semantics of the input program.
