@@ -7,14 +7,6 @@ module LLVM.Shorthands where
 import LLVM.ADT
 
 
--- | Create a conditional branching instruction.
-brCond :: Source -> Label -> Label -> Instruction
-brCond s l1 l2 = INoAss $ ITerm $ BrCond s l1 l2
-
--- | Create an unconditional branching instruction.
-brUncond :: Label -> Instruction
-brUncond l = INoAss $ ITerm $ Br l
-
 -- | Create a global scope Ident (@var).
 globalId :: String -> Ident
 globalId = Ident Global
@@ -63,3 +55,27 @@ than only literals as printString arguments, this would need to change.
 -}
 strType :: String -> Type
 strType str = TPointer $ TArray (length str + 1) i8
+
+--
+-- * Instruction shorthands.
+--
+
+alloca :: Ident -> Type -> Instruction
+alloca i t = IAss i (IMem $ Alloca t)
+
+store :: Type -> Source -> Type -> Ident -> Instruction
+store valType srcId ptrType storeToId =
+  INoAss $ IMem $ Store valType srcId ptrType storeToId
+
+ret :: Type -> Ident -> Instruction
+ret t i = INoAss $ ITerm $ Ret t i
+
+vret :: Instruction
+vret = INoAss $ ITerm VRet
+
+brCond :: Source -> Label -> Label -> Instruction
+brCond s l1 l2 = INoAss $ ITerm $ BrCond s l1 l2
+
+brUncond :: Label -> Instruction
+brUncond l = INoAss $ ITerm $ Br l
+

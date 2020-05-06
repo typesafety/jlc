@@ -26,7 +26,7 @@ module LLVM.AdtGen
 
 import Debug.Trace
 
-import Control.Monad (replicateM)
+import Control.Monad (replicateM, void)
 import Data.Bifunctor (first, second)
 import Data.Functor ((<&>))
 import Lens.Micro.Platform
@@ -38,7 +38,7 @@ import qualified Data.Map.Strict as M
 import qualified GHC.Stack as Stack
 
 import LLVM.ADT
-import qualified LLVM.Shorthands as I
+import qualified LLVM.Shorthands as L
 
 import qualified Javalette.Abs as J
 
@@ -307,112 +307,69 @@ convStmt s = case s of
   -- there to be only a single Item per declaration statement,
   -- and no combined declarations and initializations.
   J.Decl jType [J.NoInit jId] -> do
-    let lVar = transId Local jId
+    let lId = transId Local jId
     let lType = transType jType
-    bindType lVar (TPointer lType)
-    return ()
-    -- pure [TrI $ IAss lVar (IMem $ Alloca lType)]
+
+    bindType lId (toPtr lType)
+    tellI $ lId `L.alloca` lType
 
   J.Ass jId jExpr -> do
-    (instrs, sid) <- second fromJust <$> convExpr jExpr
+    srcId <- convExpr jExpr
     let storeId = transId Local jId
-    typeOf (SIdent storeId) >>= \case
-      pType@(TPointer typ) -> do
-        let storeInstr = INoAss $ IMem $ Store typ sid pType storeId
-        return ()
-        -- pure $ instrs ++ map TrI [storeInstr]
+    ptrType <- typeOf (SIdent storeId)
+    let TPointer valType = ptrType
+    tellI $ L.store valType srcId ptrType storeId
 
   J.Ret jExpr -> do
-    (instrs, sid) <- second fromJust <$> convExpr jExpr
-    -- Get the return type of our current fucntion.
+    srcId <- convExpr jExpr
     retType <- R.asks (fromJust . view envRetType)
-    -- Append a ret instruction to the generated instructions.
-    return ()
-    -- pure $ instrs ++ [TrI $ INoAss $ ITerm $ Ret retType sid]
+    tellI $ L.ret retType srcId
 
-  J.VRet -> return () -- pure [TrI $ INoAss $ ITerm VRet]
+  J.VRet -> tellI L.vret
 
-  J.SExp jExpr -> return () --fst <$> convExpr jExpr
+  J.SExp jExpr -> void $ convExpr jExpr
 
-  J.If jExpr jStmt -> do
-    (condInstrs, condId) <- second fromJust <$> convExpr jExpr
+  J.If eCond sBody -> do
     ifLabel <- nextLabel
     endLabel <- nextLabel
 
-    body <- convStmt jStmt
+    condRes <- convExpr eCond
+    tellI $ L.brCond condRes ifLabel endLabel
+    tellL ifLabel
+    convStmt sBody
+    tellI $ L.brUncond endLabel
+    tellL endLabel
 
-    let brInstr = brCond condId ifLabel endLabel
-    let brEnd = brUncond endLabel
-
-    -- return $ mconcat
-    --   -- Condition
-    --   [ condInstrs
-    --   , [TrI brInstr]
-    --   -- If
-    --   , [TrL ifLabel]
-    --   , body
-    --   , [TrI brEnd]
-    --   -- End
-    --   , [TrL endLabel]
-    --   ]
-    return ()
-
-  J.IfElse jExpr jS1 jS2 -> do
-    (condInstrs, condId) <- second fromJust <$> convExpr jExpr
+  J.IfElse eCond sT sF -> do
     ifLabel <- nextLabel
     elseLabel <- nextLabel
     endLabel <- nextLabel
 
-    ifBody <- convStmt jS1
-    elseBody <- convStmt jS2
+    condRes <- convExpr eCond
+    tellI $ L.brCond condRes ifLabel elseLabel
+    tellL ifLabel
+    convStmt sT
+    tellI $ L.brUnCond endLabel
+    tellL elseLabel
+    convStmt sF
+    tellI $ L.brUnCond endLabel
+    tellL endLabel
 
-    let brInstr = brCond condId ifLabel elseLabel
-    let brEnd = brUncond endLabel
-
-    -- return $ mconcat
-    --   -- Condition
-    --   [ condInstrs
-    --   , [TrI brInstr]
-    --   -- If
-    --   , [TrL ifLabel]
-    --   , ifBody
-    --   , [TrI brEnd]
-    --   -- Else
-    --   , [TrL elseLabel]
-    --   , elseBody
-    --   , [TrI brEnd]
-    --   -- End
-    --   , [TrL endLabel]
-    --   ]
-    return ()
-
-  J.While jExpr jStmt -> do
-    (condInstrs, condId) <- second fromJust <$> convExpr jExpr
+  J.While eCond sBody -> do
     condLabel <- nextLabel
     bodyLabel <- nextLabel
     endLabel <- nextLabel
 
-    body <- convStmt jStmt
-
-    let brInstr = brCond condId bodyLabel endLabel
-    let brStart = brUncond condLabel
-
-    -- return $ mconcat
-    --   -- Need to add a branch instruction to get from the previous
-    --   -- basic block to here, due to no falling through blocks.
-    --   [ [TrI $ INoAss $ ITerm $ Br condLabel]
-    --   -- Condition
-    --   , [TrL condLabel]
-    --   , condInstrs
-    --   , [TrI brInstr]
-    --   -- Body
-    --   , [TrL bodyLabel]
-    --   , body
-    --   , [TrI brStart]
-    --   -- End
-    --   , [TrL endLabel]
-    --   ]
-    return ()
+    -- Need to add a branch instruction to get from the previous
+    -- basic block to here, due to no falling through blocks.
+    tellI $ L.brUncond condLabel
+    tellL condLabel
+    condRes <- convExpr eCond
+    tellI $ L.brCond condRes bodyLabel endLabel
+    tellL bodyLabel
+    convStmt sBody
+    tellI $ L.brUncond condLabel
+    tellL endLabel
 
   -- We do not handle some cases that are expected to disappear in
   -- preprocessing, so we throw an error if encountered.
@@ -818,3 +775,9 @@ unsafeLookup k m = case M.lookup k m of
   Just v  -> v
   Nothing -> error $ "unsafeLookup: key `" ++ show k
                    ++ "` could not be found in map"
+
+tellI :: Instruction -> Convert ()
+tellI i = W.tell [TrI i]
+
+tellL :: Label -> Convert ()
+tellL l = W.tell [TrL l]
