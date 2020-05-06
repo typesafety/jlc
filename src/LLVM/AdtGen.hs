@@ -7,13 +7,13 @@
 LLVM AST. This is expected to run after type checking and
 other preprocessing/optimizations, such as desugaring.
 
--- TODO: Currently does not make use of the type annotations from
---       the type checking phase! Code could probably be vastly simplified
---       with a bit of rewriting.
--- TODO: (Goes for other modules as well) Errors thrown here should be
---       considered compiler errors; could possibly be propagated upwards
---       and handled more properly (rather than just an error and
---       short stack trace)
+TODO: Currently does not make use of the type annotations from
+      the type checking phase! Code could probably be vastly simplified
+      with a bit of rewriting.
+TODO: (Goes for other modules as well) Errors thrown here should be
+      considered compiler errors; could possibly be propagated upwards
+      and handled more properly (rather than just an error and
+      short stack trace)
 -}
 
 module LLVM.AdtGen
@@ -137,7 +137,8 @@ newtype Convert a =
            )
 
 runConvert :: Env -> St -> Convert a -> a
-runConvert e s (Convert m) = fst $ ST.evalState (W.runWriterT (R.runReaderT m e)) s
+runConvert e s (Convert m) =
+  fst $ ST.evalState (W.runWriterT (R.runReaderT m e)) s
 
 -- Makes for more convenient use of pattern matching. If we encounter an
 -- unexpected value on a pattern match (for example, when reading the State
@@ -171,7 +172,7 @@ convProg :: J.Prog -> Convert LLVM
 convProg (J.Program topDefs) =
   -- Add the function signatures from the JL definitions.
   R.local (over envSigs $ M.union progDecls) $ do
-    funDefs <- convTopDefs topDefs -- TODO: RESET CERTAIN STATE AFTER EACH DEF
+    funDefs <- convTopDefs topDefs
     varDefs <- map toVarDef . M.toList <$> use stGlobalVars
     let funDecls = stdExtFunDefs
     return $ LLVM 
@@ -198,7 +199,6 @@ convProg (J.Program topDefs) =
 
         getId :: FunDecl -> Ident
         getId (FunDecl _ id _) = id
-
 
 -- | Get the LLVM function definition from a JL TopDef construct.
 getFunDecl :: J.TopDef -> FunDecl
