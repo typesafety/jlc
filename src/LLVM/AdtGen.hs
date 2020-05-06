@@ -1,6 +1,7 @@
-{-# LANGUAGE LambdaCase      #-}
-{-# LANGUAGE RankNTypes      #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE TemplateHaskell            #-}
 
 {- | Module for converting an annotated Javalette AST to an
 LLVM AST. This is expected to run after type checking and
@@ -9,8 +10,6 @@ other preprocessing/optimizations, such as desugaring.
 -- TODO: Currently does not make use of the type annotations from
 --       the type checking phase! Code could probably be vastly simplified
 --       with a bit of rewriting.
--- TODO: Currently the carried State is quite spread out and messy, could
---       possibly be simplified?
 -- TODO: (Goes for other modules as well) Errors thrown here should be
 --       considered compiler errors; could possibly be propagated upwards
 --       and handled more properly (rather than just an error and
@@ -25,6 +24,7 @@ import Control.Monad (replicateM, void)
 import Data.Bifunctor (first)
 import Lens.Micro.Platform
 
+import qualified Control.Monad.Fail as Fail
 import qualified Control.Monad.Reader as R
 import qualified Control.Monad.State.Strict as ST
 import qualified Control.Monad.Writer.Strict as W
@@ -120,13 +120,31 @@ fromTrI :: Stack.HasCallStack => Translated -> Instruction
 fromTrI (TrI i) = i
 fromTrI (TrL _) = error "fromTrI: TrL"
 
+--
+-- * Convert type.
+--
+
 {- | The monad stack keeps track of function signatures and relevant
 state when traversing the Javalette AST.
 -}
-type Convert a = R.ReaderT Env (W.WriterT [Translated] (ST.State St)) a
+newtype Convert a =
+  Convert (R.ReaderT Env (W.WriterT [Translated] (ST.State St)) a)
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , W.MonadWriter [Translated]
+           , R.MonadReader Env
+           , ST.MonadState St
+           )
 
 runConvert :: Env -> St -> Convert a -> a
-runConvert e s m = fst $ ST.evalState (W.runWriterT (R.runReaderT m e)) s
+runConvert e s (Convert m) = fst $ ST.evalState (W.runWriterT (R.runReaderT m e)) s
+
+-- Makes for more convenient use of pattern matching. If we encounter an
+-- unexpected value on a pattern match (for example, when reading the State
+-- to get the type of some variable), we do want to crash.
+instance Fail.MonadFail Convert where
+  fail = error
 
 --
 -- * "Boilerplate"-like content to include in .ll source files.
@@ -305,10 +323,9 @@ convStmt s = case s of
     tellI $ lId `L.alloca` lType
 
   J.Ass jId jExpr -> do
-    srcId <- convExpr jExpr
     let storeId = transId Local jId
-    ptrType <- typeOf (SIdent storeId)
-    let TPointer valType = ptrType
+    srcId <- convExpr jExpr
+    ptrType@(TPointer valType) <- typeOf $ SIdent storeId
     tellI $ L.store valType srcId ptrType storeId
 
   J.Ret jExpr -> do
@@ -321,51 +338,54 @@ convStmt s = case s of
   J.SExp jExpr -> void $ convExpr jExpr
 
   J.If eCond sBody -> do
-    ifLabel <- nextLabel
-    endLabel <- nextLabel
+    [ifLabel, endLabel] <- replicateM 2 nextLabel
 
     condRes <- convExpr eCond
     tellI $ L.brCond condRes ifLabel endLabel
+
     tellL ifLabel
     convStmt sBody
     tellI $ L.brUncond endLabel
+
     tellL endLabel
 
   J.IfElse eCond sT sF -> do
-    ifLabel <- nextLabel
-    elseLabel <- nextLabel
-    endLabel <- nextLabel
+    [ifLabel, elseLabel, endLabel] <- replicateM 3 nextLabel
 
     condRes <- convExpr eCond
     tellI $ L.brCond condRes ifLabel elseLabel
-    tellL ifLabel
+
+    tellL   ifLabel
     convStmt sT
     tellI $ L.brUncond endLabel
-    tellL elseLabel
+
+    tellL   elseLabel
     convStmt sF
     tellI $ L.brUncond endLabel
-    tellL endLabel
+
+    tellL   endLabel
 
   J.While eCond sBody -> do
-    condLabel <- nextLabel
-    bodyLabel <- nextLabel
-    endLabel <- nextLabel
-
+    [condLabel, bodyLabel, endLabel] <- replicateM 3 nextLabel
     -- Need to add a branch instruction to get from the previous
     -- basic block to here, due to no falling through blocks.
     tellI $ L.brUncond condLabel
-    tellL condLabel
+
+    tellL   condLabel
     condRes <- convExpr eCond
     tellI $ L.brCond condRes bodyLabel endLabel
-    tellL bodyLabel
+
+    tellL   bodyLabel
     convStmt sBody
     tellI $ L.brUncond condLabel
-    tellL endLabel
+
+    tellL   endLabel
 
   -- We do not handle some cases that are expected to disappear in
   -- preprocessing, so we throw an error if encountered.
-  stmt -> error $ "genInstrs: Unexpected Javalette stmt:\n" ++ show stmt
+  stmt -> error $ "convStmt: Unexpected Javalette stmt:\n" ++ show stmt
 
+-- Used in implementation of lazy AND/OR evaluation.
 data LazyOp = LazyAnd | LazyOr
 
 {- | Convert a Javalette expression to a series of instructions. Return
@@ -377,9 +397,7 @@ convExpr :: Stack.HasCallStack => J.Expr -> Convert Source
 convExpr e = case e of
   J.EVar jId -> do
     let lId = transId Local jId
-    ptrType <- typeOf $ SIdent lId
-    -- Type when accessing a variable must be a pointer type, crash otherwise.
-    let TPointer valType = ptrType 
+    ptrType@(TPointer valType) <- typeOf $ SIdent lId
 
     assId <- nextVar
     tellI $ (assId `L.load` valType) ptrType lId
@@ -389,26 +407,21 @@ convExpr e = case e of
   -- Hardcoded case for printString.
   J.EApp jId@(J.Ident "printString") [jExpr] -> do
     let funId = transId Global jId
-
     arrPtr <- convExpr jExpr
     -- arrPtrV is a variable of type [n x i8]*
-    arrPtrType <- typeOf arrPtr
-    let (TPointer arrType) = arrPtrType
-    ptr <- nextVar
-
+    arrPtrType@(TPointer arrType) <- typeOf arrPtr
     let args = [ (arrPtrType, arrPtr)
                , (L.i32, L.srcI32 0)
                , (L.i32, L.srcI32 0)
                ]
+    ptr <- nextVar
     tellI $ (ptr `L.getelementptr` arrType) args
-    let funArgs = [Arg (L.toPtr L.i8) (SIdent ptr)]
-    tellI $ L.callV funId funArgs
+    tellI $ L.callV funId [Arg (L.toPtr L.i8) (SIdent ptr)]
 
     return L.srcNull
 
   J.EApp jId jExprs -> do
     let funId = transId Global jId
-
     (retType, paramTypes) <- lookupFun funId
     paramSrcs <- mapM convExpr jExprs
     let args = zipWith Arg paramTypes paramSrcs
@@ -422,15 +435,17 @@ convExpr e = case e of
         tellI $ (assId `L.call`) retType funId args
         bindRetId assId retType
 
-  J.EString str -> addGlobalStr str >>= \ gId -> bindRetId gId (L.strType str)
+  J.EString str -> do
+    gId <- addGlobalStr str
+    bindRetId gId (L.strType str)
 
   J.Neg jExpr -> do
     assId <- nextVar
     srcId <- convExpr jExpr
     retType <- typeOf srcId
     case retType of
-      TNBitInt 32 -> tellI $ (assId `L.mul` L.i32) srcId (L.srcI32 (-1))
-      TDouble     -> tellI $ (assId `L.fmul` TDouble) srcId (L.srcD (-1))
+      TNBitInt 32 -> tellI $ (assId `L.mul`   L.i32)  srcId (L.srcI32 (-1))
+      TDouble     -> tellI $ (assId `L.fmul` TDouble) srcId (L.srcD   (-1))
     bindRetId assId retType
 
   J.Not jExpr -> do
@@ -441,7 +456,7 @@ convExpr e = case e of
 
   J.EAdd jE1 jOp jE2 -> convArithOp jE1 jE2 (Left jOp) getOp
     where
-      getOp (Left jOp) retType = case (jOp, retType) of 
+      getOp (Left jOp) retType = case (jOp, retType) of
           (J.Plus,  TNBitInt _) -> Add
           (J.Plus,  TDouble)    -> Fadd
           (J.Minus, TNBitInt _) -> Sub
@@ -449,7 +464,7 @@ convExpr e = case e of
 
   J.EMul jE1 jOp jE2 -> convArithOp jE1 jE2 (Right jOp) getOp
     where
-      getOp (Right jOp) retType = case (jOp, retType) of 
+      getOp (Right jOp) retType = case (jOp, retType) of
         (J.Times, TNBitInt _) -> Mul
         (J.Times, TDouble)    -> Fmul
         (J.Div,   TNBitInt _) -> Sdiv
@@ -487,22 +502,17 @@ convExpr e = case e of
   J.ELitTrue     -> return   L.srcTrue
   J.ELitFalse    -> return   L.srcFalse
 
-  -- Forgot that we annotated during type checking...
+  -- Forgot that we annotated expressions during type checking...
   -- TODO: rewrite code to make use of type annotation.
   J.AnnExp jExpr jType -> convExpr jExpr
 
   where
     -- For lazy AND/OR
-    lazyLogic
-      :: J.Expr
-      -> J.Expr
-      -> LazyOp
-      -> Convert Source
+    lazyLogic :: J.Expr -> J.Expr -> LazyOp -> Convert Source
     lazyLogic jE1 jE2 op = do
-      lbls <- replicateM 4 nextLabel
-      let [lEvalSnd, lWriteT, lWriteF, lEnd] = lbls
+      [lEvalSnd, lWriteT, lWriteF, lEnd] <- replicateM 4 nextLabel
+      [memRes, res] <- replicateM 2 nextVar
 
-      memRes <- nextVar
       tellI $ L.alloca memRes L.bool
 
       e1res <- convExpr jE1
@@ -525,7 +535,6 @@ convExpr e = case e of
       tellI $ L.brUncond lEnd
 
       tellL   lEnd
-      res <- nextVar
       tellI $ L.load res L.bool (L.toPtr L.bool) memRes
 
       bindRetId res L.bool
@@ -539,7 +548,7 @@ convExpr e = case e of
     convArithOp jE1 jE2 jOp getOp = do
       srcId1 <- convExpr jE1
       srcId2 <- convExpr jE2
-      retType <- typeOf srcId1
+      retType <- typeOf srcId1  -- Assumes that retType == either input type
       assId <- nextVar
       tellI $ L.arith (getOp jOp retType) assId retType srcId1 srcId2
       bindRetId assId retType
@@ -549,10 +558,6 @@ convExpr e = case e of
 
     retId :: Ident -> Convert Source
     retId id = return $ SIdent id
-
-    retLit :: Type -> Lit -> Convert Source
-    retLit typ lit = return $ SVal typ lit
-
 
 --
 -- * Functions for translating from Javalette ADT to LLVM ADT.
