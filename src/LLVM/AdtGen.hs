@@ -375,6 +375,8 @@ convStmt s = case s of
   -- preprocessing, so we throw an error if encountered.
   stmt -> error $ "genInstrs: Unexpected Javalette stmt:\n" ++ show stmt
 
+data LazyOp = LazyAnd | LazyOr
+
 {- | Convert a Javalette expression to a series of instructions. Return
 the result as a Source, containing the variable in which the result is
 stored, or the literal value. Result is a null literal if neither
@@ -486,9 +488,8 @@ convExpr e = case e of
         (J.NE,  TNBitInt _) -> L.icmp id IC_NE  typ
         (J.NE,  TDouble)    -> L.fcmp id FC_ONE typ
 
-  J.EAnd jE1 jE2 -> lazyLogic jE1 jE2 And{}
-
-  J.EOr jE1 jE2 -> lazyLogic jE1 jE2 Or{}
+  J.EAnd jE1 jE2 -> lazyLogic jE1 jE2 LazyAnd
+  J.EOr  jE1 jE2 -> lazyLogic jE1 jE2 LazyOr
 
   J.ELitInt n    -> return $ L.srcI32 (fromIntegral n)
   J.ELitDouble d -> return $ L.srcD d
@@ -504,7 +505,7 @@ convExpr e = case e of
     lazyLogic
       :: J.Expr
       -> J.Expr
-      -> BitwiseOp
+      -> LazyOp
       -> Convert Source
     lazyLogic jE1 jE2 op = do
       lbls <- replicateM 4 nextLabel
@@ -515,14 +516,14 @@ convExpr e = case e of
 
       e1res <- convExpr jE1
       case op of
-        And{} -> tellI $ L.brCond e1res lEvalSnd lWriteF
-        Or{}  -> tellI $ L.brCond e1res lWriteT lEvalSnd
+        LazyAnd -> tellI $ L.brCond e1res lEvalSnd lWriteF
+        LazyOr  -> tellI $ L.brCond e1res lWriteT lEvalSnd
 
       tellL lEvalSnd
       e2res <- convExpr jE2
       case op of
-        And{} -> tellI $ L.brCond e2res lWriteT lWriteF
-        Or{}  -> tellI $ L.brCond e2res lWriteT lWriteF
+        LazyAnd -> tellI $ L.brCond e2res lWriteT lWriteF
+        LazyOr  -> tellI $ L.brCond e2res lWriteT lWriteF
 
       tellL   lWriteT
       tellI $ L.store L.bool L.srcTrue (L.toPtr L.bool) memRes
@@ -546,7 +547,7 @@ convExpr e = case e of
       -> Convert Source
     convArithOp jE1 jE2 jOp getOp = do
       srcId1 <- convExpr jE1
-      srcId2 <- convExpr jE1
+      srcId2 <- convExpr jE2
       retType <- typeOf srcId1
       assId <- nextVar
       tellI $ L.arith (getOp jOp retType) assId retType srcId1 srcId2
