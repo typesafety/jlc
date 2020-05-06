@@ -429,60 +429,42 @@ convExpr e = case e of
         tellI $ (assId `L.call`) retType funId args
         bindRetId assId retType
 
-  J.EString str -> do
-    gId <- addGlobalStr str
-    bindType gId (strType str) >> return ([], Just $ SIdent gId)
+  J.EString str -> addGlobalStr str >>= \ gId -> bindRetId gId (L.strType str)
 
   J.Neg jExpr -> do
-    (instrs, sid) <- second fromJust <$> convExpr jExpr
     assId <- nextVar
-    negIns <- typeOf sid >>= \case
-      TNBitInt 32 ->
-        pure $ IAss assId $ IArith Mul i32 sid (srcLitN i32 (-1))
-      TDouble     ->
-        pure $ IAss assId $ IArith Fmul TDouble sid (srcLitD (-1))
-    return (instrs ++ [TrI negIns], Just (SIdent assId))
+    srcId <- convExpr jExpr
+    typeOf srcId >>= \case
+      TNBitInt 32 -> tellI $ (assId `L.mul` L.i32) srcId (L.srcI32 (-1))
+      TDouble     -> tellI $ (assId `L.fmul` TDouble) srcId (L.srcD (-1))
+    bindRetId assId
 
   J.Not jExpr -> do
-    (instrs, sid) <- second fromJust <$> convExpr jExpr
     assId <- nextVar
-    typ <- typeOf sid
+    srcId <- convExpr jExpr
+    retType <- typeOf srcId
+    tellI $ (assId `L.xor` retType) srcId L.srcTrue
+    bindRetId assId
 
-    let ins = IAss assId $ IBitwise $ Xor i1 sid (SVal i1 (LInt 1))
-    bindType assId typ
-      >> return (instrs ++ [TrI ins], Just $ SIdent assId)
-
-  J.EMul jE1 jOp jE2 -> do
-    (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
-    let arithOp = getOp jOp sid1Type
-    let ins     = IAss assId $ IArith arithOp sid1Type sid1 sid2
-    bindType assId sid1Type
-      >> return (instrs1 ++ instrs2 ++ [TrI ins], Just $ SIdent assId)
-
+  J.EAdd jE1 jOp jE2 -> convArithOp jE1 jE2 jOp getOp
     where
-      getOp :: J.MulOp -> Type -> ArithOp
-      getOp jOp typ = case (jOp, typ) of
-        (J.Times, TDouble)    -> Fmul
+      getOp (Left jOp) retType = case (jOp, retType) of 
+          (J.Plus,  TNBitInt _) -> Add
+          (J.Plus,  TDouble)    -> Fadd
+          (J.Minus, TNBitInt _) -> Sub
+          (J.Minus, TDouble)    -> Fsub
+
+  J.EMul jE1 jOp jE2 -> convArithOp jE1 jE2 jOp getOp
+    where
+      getOp (Right jOp) retType = case (jOp, retType) of 
         (J.Times, TNBitInt _) -> Mul
-        (J.Div,   TDouble)    -> Fdiv
+        (J.Times, TDouble)    -> Fmul
         (J.Div,   TNBitInt _) -> Sdiv
+        (J.Div,   TDouble)    -> Fdiv
         (J.Mod,   TNBitInt _) -> Srem
 
-  J.EAdd jE1 jOp jE2 -> do
-    (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
-    let arithOp = getOp jOp sid1Type
-    let ins = IAss assId $ IArith arithOp sid1Type sid1 sid2
-    bindType assId sid1Type
-      >> return (instrs1 ++ instrs2 ++ [TrI ins], Just $ SIdent assId)
 
-    where
-      getOp :: J.AddOp -> Type -> ArithOp
-      getOp jOp typ = case (jOp, typ) of
-        (J.Plus, TDouble)     -> Fadd
-        (J.Plus, TNBitInt _)  -> Add
-        (J.Minus, TDouble)    -> Fsub
-        (J.Minus, TNBitInt _) -> Sub
-
+  -- TODO HERE:
   J.ERel jE1 jOp jE2 -> do
     (instrs1, sid1, instrs2, sid2, sid1Type, assId) <- convBinOp jE1 jE2
     let relOpC = getOpC jOp sid1Type
@@ -625,26 +607,19 @@ convExpr e = case e of
   J.AnnExp jExpr jType -> convExpr jExpr
 
   where
-    -- Performs converting of subexpressions in binary operations, then
-    -- returns the instructions, the variables to which they are assigned,
-    -- the result type of the FIRST instruction, and the variable to save
-    -- the result to.
-    convBinOp
+    convArithOp
       :: J.Expr
       -> J.Expr
-      -> Convert ([Translated], Source, [Translated], Source, Type, Ident)
-    convBinOp jE1 jE2 = do
-      (instrs1, sid1) <- second fromJust <$> convExpr jE1
-      (instrs2, sid2) <- second fromJust <$> convExpr jE2
-      typ <- typeOf sid1
+      -> Either J.AddOp J.MulOp
+      -> (Either J.AddOp J.MulOp -> Type -> ArithOp)
+      -> Convert Source
+    convArithOp jE1 jE2 jOp getOp = do
+      srcId1 <- convExpr jE1
+      srcId2 <- convExpr jE1
+      retType <- typeOf srcId1
       assId <- nextVar
-      return (instrs1, sid1, instrs2, sid2, typ, assId)
-
-    wrapI :: Instruction -> [Translated]
-    wrapI i = [TrI i]
-
-    wrapL :: Label -> [Translated]
-    wrapL l = [TrL l]
+      tellI $ L.arith (getOp jOp retType) assId retType srcId1 srcId2
+      bindRetId assId
 
     bindRetId :: Ident -> Type -> Convert Source
     bindRetId id typ = bindType id typ >> retId id

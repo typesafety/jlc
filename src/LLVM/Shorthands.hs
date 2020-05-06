@@ -57,8 +57,8 @@ strType str = TPointer $ TArray (length str + 1) i8
 srcLitN :: Type -> Int -> Source
 srcLitN t n = SVal t (LInt n)
 
-srcLitD :: Double -> Source
-srcLitD d = SVal TDouble (LDouble d)
+srcD :: Double -> Source
+srcD d = SVal TDouble (LDouble d)
 
 srcI32 :: Int -> Source
 srcI32 = srcLitN i32
@@ -105,4 +105,41 @@ callV funId args = INoAss $ IOther $ Call TVoid funId args
 
 call :: Type -> Ident -> [Arg] -> Instruction
 call assId retType funId args = IAss assId (IOther $ Call retType funId args)
+
+type ArithIns = Ident -> Type -> Source -> Source -> Instruction
+
+add :: ArithIns
+add = arith Add
+
+fadd :: ArithIns
+fadd = arith Fadd
+
+sub :: ArithIns
+sub = arith Sub
+
+fsub :: ArithIns
+fsub = arith Fsub
+
+mul :: ArithIns
+mul = arith Mul
+
+fmul :: ArithIns
+fmul = arith Fmul
+
+sdiv :: ArithIns
+sdiv = arith Sdiv
+
+fdiv :: ArithIns
+fdiv = arith Fdiv
+
+srem :: ArithIns
+srem = arith Srem
+
+arith :: ArithOp -> ArithIns
+arith op assId retType s1 s2 = IAss assId (IArith op retType s1 s2)
+
+xor :: Ident -> Type -> Source -> Source -> Instruction
+xor assId retType s1 s2 = IAss assId (IBitwise $ Xor retType s1 s2)
+
+
 
