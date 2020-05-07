@@ -20,14 +20,19 @@ separator   Arg "," ;
 
 Block.      Blk ::= "{" [Stmt] "}" ;
 
+-- Variables
+
+Id.         Var ::= Ident ;
+ArrIndex.   Var ::= Var "[" Expr "]" ;
+
 -- Statments
 
 Empty.      Stmt ::= ";" ;
 BStmt.      Stmt ::= Blk ;
 Decl.       Stmt ::= Type [Item] ";" ;
-Ass.        Stmt ::= Ident "=" Expr ";" ;
-Incr.       Stmt ::= Ident "++" ";" ;
-Decr.       Stmt ::= Ident "--" ";" ;
+Ass.        Stmt ::= Var "=" Expr ";" ;
+Incr.       Stmt ::= Var "++" ";" ;
+Decr.       Stmt ::= Var "--" ";" ;
 Ret.        Stmt ::= "return" Expr ";" ;
 VRet.       Stmt ::= "return" ";" ;
 If.         Stmt ::= "if" "(" Expr ")" Stmt ;
@@ -39,32 +44,36 @@ separator   Stmt "" ;
 
 -- Items (used in declaration statements)
 
-NoInit.     Item ::= Ident ;
-Init.       Item ::= Ident "=" Expr ;
+NoInit.     Item ::= Var ;
+Init.       Item ::= Var "=" Expr ;
 
 separator nonempty Item "," ;
 
 -- Types
 
-Int.        Type ::= "int" ;
-Double.     Type ::= "double" ;
-Bool.       Type ::= "boolean" ;
-Void.       Type ::= "void" ;
+Int.        Type1 ::= "int" ;
+Double.     Type1 ::= "double" ;
+Bool.       Type1 ::= "boolean" ;
+Void.       Type1 ::= "void" ;
+Arr.        Type  ::= Type "[]" ;
 
 internal    Fun. Type ::= Type "(" [Type] ")" ;
 internal    Str. Type ::= "String" ;
 
+coercions   Type 1 ;
 separator   Type "," ;
 
 -- Expressions
 
-EVar.       Expr7 ::= Ident ;
+ELength.    Expr7 ::= Var "." "length" ;
+EVar.       Expr7 ::= Var ;
 ELitInt.    Expr7 ::= Integer ;
 ELitDouble. Expr7 ::= Double;
 ELitTrue.   Expr7 ::= "true" ;
 ELitFalse.  Expr7 ::= "false" ;
 EApp.       Expr7 ::= Ident "(" [Expr] ")" ;
 EString.    Expr7 ::= String ;
+ENewArr.    Expr6 ::= "new" Type "[" Expr7 "]" ;
 Neg.        Expr6 ::= "-" Expr7 ;
 Not.        Expr6 ::= "!" Expr7 ;
 EMul.       Expr5 ::= Expr5 MulOp Expr6 ;

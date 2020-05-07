@@ -25,29 +25,35 @@ import Javalette.ErrM
   ',' { PT _ (TS _ 10) }
   '-' { PT _ (TS _ 11) }
   '--' { PT _ (TS _ 12) }
-  '/' { PT _ (TS _ 13) }
-  '::' { PT _ (TS _ 14) }
-  ';' { PT _ (TS _ 15) }
-  '<' { PT _ (TS _ 16) }
-  '<=' { PT _ (TS _ 17) }
-  '=' { PT _ (TS _ 18) }
-  '==' { PT _ (TS _ 19) }
-  '>' { PT _ (TS _ 20) }
-  '>=' { PT _ (TS _ 21) }
-  'String' { PT _ (TS _ 22) }
-  'boolean' { PT _ (TS _ 23) }
-  'double' { PT _ (TS _ 24) }
-  'else' { PT _ (TS _ 25) }
-  'false' { PT _ (TS _ 26) }
-  'if' { PT _ (TS _ 27) }
-  'int' { PT _ (TS _ 28) }
-  'return' { PT _ (TS _ 29) }
-  'true' { PT _ (TS _ 30) }
-  'void' { PT _ (TS _ 31) }
-  'while' { PT _ (TS _ 32) }
-  '{' { PT _ (TS _ 33) }
-  '||' { PT _ (TS _ 34) }
-  '}' { PT _ (TS _ 35) }
+  '.' { PT _ (TS _ 13) }
+  '/' { PT _ (TS _ 14) }
+  '::' { PT _ (TS _ 15) }
+  ';' { PT _ (TS _ 16) }
+  '<' { PT _ (TS _ 17) }
+  '<=' { PT _ (TS _ 18) }
+  '=' { PT _ (TS _ 19) }
+  '==' { PT _ (TS _ 20) }
+  '>' { PT _ (TS _ 21) }
+  '>=' { PT _ (TS _ 22) }
+  'String' { PT _ (TS _ 23) }
+  '[' { PT _ (TS _ 24) }
+  '[]' { PT _ (TS _ 25) }
+  ']' { PT _ (TS _ 26) }
+  'boolean' { PT _ (TS _ 27) }
+  'double' { PT _ (TS _ 28) }
+  'else' { PT _ (TS _ 29) }
+  'false' { PT _ (TS _ 30) }
+  'if' { PT _ (TS _ 31) }
+  'int' { PT _ (TS _ 32) }
+  'length' { PT _ (TS _ 33) }
+  'new' { PT _ (TS _ 34) }
+  'return' { PT _ (TS _ 35) }
+  'true' { PT _ (TS _ 36) }
+  'void' { PT _ (TS _ 37) }
+  'while' { PT _ (TS _ 38) }
+  '{' { PT _ (TS _ 39) }
+  '||' { PT _ (TS _ 40) }
+  '}' { PT _ (TS _ 41) }
 
 L_ident  { PT _ (TV $$) }
 L_integ  { PT _ (TI $$) }
@@ -76,37 +82,44 @@ ListArg : {- empty -} { [] }
         | Arg ',' ListArg { (:) $1 $3 }
 Blk :: { Blk }
 Blk : '{' ListStmt '}' { Javalette.Abs.Block (reverse $2) }
-ListStmt :: { [Stmt] }
-ListStmt : {- empty -} { [] } | ListStmt Stmt { flip (:) $1 $2 }
+Var :: { Var }
+Var : Ident { Javalette.Abs.Id $1 }
+    | Var '[' Expr ']' { Javalette.Abs.ArrIndex $1 $3 }
 Stmt :: { Stmt }
 Stmt : ';' { Javalette.Abs.Empty }
      | Blk { Javalette.Abs.BStmt $1 }
      | Type ListItem ';' { Javalette.Abs.Decl $1 $2 }
-     | Ident '=' Expr ';' { Javalette.Abs.Ass $1 $3 }
-     | Ident '++' ';' { Javalette.Abs.Incr $1 }
-     | Ident '--' ';' { Javalette.Abs.Decr $1 }
+     | Var '=' Expr ';' { Javalette.Abs.Ass $1 $3 }
+     | Var '++' ';' { Javalette.Abs.Incr $1 }
+     | Var '--' ';' { Javalette.Abs.Decr $1 }
      | 'return' Expr ';' { Javalette.Abs.Ret $2 }
      | 'return' ';' { Javalette.Abs.VRet }
      | 'if' '(' Expr ')' Stmt { Javalette.Abs.If $3 $5 }
      | 'if' '(' Expr ')' Stmt 'else' Stmt { Javalette.Abs.IfElse $3 $5 $7 }
      | 'while' '(' Expr ')' Stmt { Javalette.Abs.While $3 $5 }
      | Expr ';' { Javalette.Abs.SExp $1 }
+ListStmt :: { [Stmt] }
+ListStmt : {- empty -} { [] } | ListStmt Stmt { flip (:) $1 $2 }
 Item :: { Item }
-Item : Ident { Javalette.Abs.NoInit $1 }
-     | Ident '=' Expr { Javalette.Abs.Init $1 $3 }
+Item : Var { Javalette.Abs.NoInit $1 }
+     | Var '=' Expr { Javalette.Abs.Init $1 $3 }
 ListItem :: { [Item] }
 ListItem : Item { (:[]) $1 } | Item ',' ListItem { (:) $1 $3 }
+Type1 :: { Type }
+Type1 : 'int' { Javalette.Abs.Int }
+      | 'double' { Javalette.Abs.Double }
+      | 'boolean' { Javalette.Abs.Bool }
+      | 'void' { Javalette.Abs.Void }
+      | '(' Type ')' { $2 }
 Type :: { Type }
-Type : 'int' { Javalette.Abs.Int }
-     | 'double' { Javalette.Abs.Double }
-     | 'boolean' { Javalette.Abs.Bool }
-     | 'void' { Javalette.Abs.Void }
+Type : Type '[]' { Javalette.Abs.Arr $1 } | Type1 { $1 }
 ListType :: { [Type] }
 ListType : {- empty -} { [] }
          | Type { (:[]) $1 }
          | Type ',' ListType { (:) $1 $3 }
 Expr7 :: { Expr }
-Expr7 : Ident { Javalette.Abs.EVar $1 }
+Expr7 : Var '.' 'length' { Javalette.Abs.ELength $1 }
+      | Var { Javalette.Abs.EVar $1 }
       | Integer { Javalette.Abs.ELitInt $1 }
       | Double { Javalette.Abs.ELitDouble $1 }
       | 'true' { Javalette.Abs.ELitTrue }
@@ -115,7 +128,8 @@ Expr7 : Ident { Javalette.Abs.EVar $1 }
       | String { Javalette.Abs.EString $1 }
       | '(' Expr ')' { $2 }
 Expr6 :: { Expr }
-Expr6 : '-' Expr7 { Javalette.Abs.Neg $2 }
+Expr6 : 'new' Type '[' Expr7 ']' { Javalette.Abs.ENewArr $2 $4 }
+      | '-' Expr7 { Javalette.Abs.Neg $2 }
       | '!' Expr7 { Javalette.Abs.Not $2 }
       | Expr7 { $1 }
 Expr5 :: { Expr }
