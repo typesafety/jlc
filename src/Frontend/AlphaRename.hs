@@ -88,13 +88,19 @@ renameStmt = \case
         aVar <- newBindStepAlpha id
         return $ Init aVar aExpr
 
-  Ass id expr -> do
+  Ass (ArrVar ident arrIdxs) expr -> do
+    aExpr <- renameExpr expr
+    aArrIdxs <- mapM renameArrIdx arrIdxs
+    aIdent <- lookupVar (Original ident)
+    return $ Ass (ArrVar aIdent aArrIdxs) aExpr
+
+  Ass (IdVar ident) expr -> do
     -- Again, important to consider the order of evaluation; we
     -- do renaming on the expression FIRST.
     aExpr <- renameExpr expr
     -- Then, look up the a-var of the original id that is being assigned to.
-    aVar <- lookupVar (Original id)
-    return $ Ass aVar aExpr
+    aIdent <- lookupVar (Original ident)
+    return $ Ass (IdVar aIdent) aExpr
 
   Incr id -> Incr <$> lookupVar (Original id)
   Decr id -> Decr <$> lookupVar (Original id)
@@ -122,6 +128,9 @@ renameStmt = \case
 
   -- Catch-all case for statements that need no renaming.
   stmt -> return stmt
+
+renameArrIdx :: ArrIndex -> Rename ArrIndex
+renameArrIdx (ArrIndex e) = ArrIndex <$> renameExpr e
 
 renameExpr :: Expr -> Rename Expr
 renameExpr = \case
@@ -253,7 +262,6 @@ This returns a value, modifies the context stack, and modifies the counter.
 newBindStepAlpha :: Ident -> Rename Ident
 newBindStepAlpha = bindStepAlpha bindVar
 
--- TODO: these two functions are very similar, refactor?
 {- | Like @bindStepAlpha@, but using @rebind@ instead of @bindVar@.
 In other words, keep the original @id@ on the stac, but replace its
 topmost binding to a new unique variable.
@@ -278,3 +286,7 @@ varBase = "v"
 
 stackStr :: Stack.HasCallStack => String
 stackStr = Stack.prettyCallStack Stack.callStack
+
+idFromVar :: Var -> Ident
+idFromVar (IdVar ident)    = ident
+idFromVar (ArrVar ident _) = ident
