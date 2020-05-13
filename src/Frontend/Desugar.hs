@@ -93,8 +93,11 @@ dsgStmt = \case
   IfElse expr s1 s2 -> Right
     <$> (IfElse <$> dsgExpr expr <*> handleS s1 <*> handleS s2)
 
-  While expr stmt -> Right <$>
-    (While <$> dsgExpr expr <*> handleS stmt)
+  While expr stmt -> Right
+    <$> (While <$> dsgExpr expr <*> handleS stmt)
+
+  ForEach typ ident expr stmt -> Right
+    <$> (ForEach typ ident <$> dsgExpr expr <*> handleS stmt)
 
   SExp expr -> Right . SExp <$> dsgExpr expr
 
