@@ -118,6 +118,12 @@ renameStmt = \case
     aStmt <- renameStmt stmt
     return $ While aExpr aStmt
 
+  ForEach typ ident expr stmt -> do
+    aExpr <- renameExpr expr
+    newIdent <- newBindStepAlpha ident
+    aStmt <- renameStmt stmt
+    return $ ForEach typ newIdent aExpr aStmt
+
   SExp expr -> SExp <$> renameExpr expr
 
   -- Catch-all case for statements that need no renaming.
