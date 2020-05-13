@@ -22,8 +22,14 @@ Block.      Blk ::= "{" [Stmt] "}" ;
 
 -- Variables
 
-Id.         Var ::= Ident ;
-ArrIndex.   Var ::= Var "[" Expr "]" ;
+IdVar.      Var ::= Ident ;
+ArrVar.     Var ::= Ident [ArrIndex] ;
+
+-- Array indexing.
+
+ArrIndex.   ArrIndex ::= "[" Expr "]" ;
+
+separator nonempty ArrIndex "" ;
 
 -- Statments
 
@@ -44,8 +50,8 @@ separator   Stmt "" ;
 
 -- Items (used in declaration statements)
 
-NoInit.     Item ::= Var ;
-Init.       Item ::= Var "=" Expr ;
+NoInit.     Item ::= Ident ;
+Init.       Item ::= Ident "=" Expr ;
 
 separator nonempty Item "," ;
 

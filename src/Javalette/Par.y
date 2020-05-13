@@ -83,8 +83,13 @@ ListArg : {- empty -} { [] }
 Blk :: { Blk }
 Blk : '{' ListStmt '}' { Javalette.Abs.Block (reverse $2) }
 Var :: { Var }
-Var : Ident { Javalette.Abs.Id $1 }
-    | Var '[' Expr ']' { Javalette.Abs.ArrIndex $1 $3 }
+Var : Ident { Javalette.Abs.IdVar $1 }
+    | Ident ListArrIndex { Javalette.Abs.ArrVar $1 $2 }
+ArrIndex :: { ArrIndex }
+ArrIndex : '[' Expr ']' { Javalette.Abs.ArrIndex $2 }
+ListArrIndex :: { [ArrIndex] }
+ListArrIndex : ArrIndex { (:[]) $1 }
+             | ArrIndex ListArrIndex { (:) $1 $2 }
 Stmt :: { Stmt }
 Stmt : ';' { Javalette.Abs.Empty }
      | Blk { Javalette.Abs.BStmt $1 }
@@ -101,8 +106,8 @@ Stmt : ';' { Javalette.Abs.Empty }
 ListStmt :: { [Stmt] }
 ListStmt : {- empty -} { [] } | ListStmt Stmt { flip (:) $1 $2 }
 Item :: { Item }
-Item : Var { Javalette.Abs.NoInit $1 }
-     | Var '=' Expr { Javalette.Abs.Init $1 $3 }
+Item : Ident { Javalette.Abs.NoInit $1 }
+     | Ident '=' Expr { Javalette.Abs.Init $1 $3 }
 ListItem :: { [Item] }
 ListItem : Item { (:[]) $1 } | Item ',' ListItem { (:) $1 $3 }
 Type1 :: { Type }

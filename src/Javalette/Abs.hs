@@ -20,7 +20,10 @@ data Arg = Argument Type Ident
 data Blk = Block [Stmt]
   deriving (Eq, Ord, Show, Read)
 
-data Var = Id Ident | ArrIndex Var Expr
+data Var = IdVar Ident | ArrVar Ident [ArrIndex]
+  deriving (Eq, Ord, Show, Read)
+
+data ArrIndex = ArrIndex Expr
   deriving (Eq, Ord, Show, Read)
 
 data Stmt
@@ -38,7 +41,7 @@ data Stmt
     | SExp Expr
   deriving (Eq, Ord, Show, Read)
 
-data Item = NoInit Var | Init Var Expr
+data Item = NoInit Ident | Init Ident Expr
   deriving (Eq, Ord, Show, Read)
 
 data Type
