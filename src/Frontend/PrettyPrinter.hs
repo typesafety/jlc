@@ -149,6 +149,17 @@ instance Pretty Stmt where
         , indent, pStmt
         ]
 
+    ForEach typ ident expr stmt -> do
+      pTyp <- pPrint typ
+      pIdent <- pPrint ident
+      pExpr <- pPrint expr
+      pStmt <- pPrint stmt
+      indent <- decideIndent stmt
+      pure $ mconcat
+        [ "for (", pTyp, " ", pIdent, " : ", pExpr, ")\n"
+        , indent, pStmt
+        ]
+
     SExp expr -> pPrint expr <&> (++ ";")
 
     where
