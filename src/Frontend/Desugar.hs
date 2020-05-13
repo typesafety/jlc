@@ -77,7 +77,7 @@ dsgStmt = \case
         NoInit id    -> pure [Decl t [i]]
         Init id expr -> do
           dExpr <- dsgExpr expr
-          return [Decl t [NoInit id], Ass id dExpr]
+          return [Decl t [NoInit id], Ass (IdVar id) dExpr]
 
   Ass id expr -> Right . Ass id <$> dsgExpr expr
 
