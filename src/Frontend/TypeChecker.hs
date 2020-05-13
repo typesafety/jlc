@@ -15,6 +15,7 @@ import qualified Control.Monad.Except as E
 import qualified Control.Monad.Reader as R
 import qualified Control.Monad.State as ST
 import qualified Data.Map.Strict as M
+import qualified GHC.Stack as Stack
 
 
 --
@@ -92,7 +93,7 @@ checkDef (FnDef typ id args (Block stmts)) = do
 
   return $ FnDef typ id args (Block annotated)
 
--- | Return @True@ if the given list of statements is guaranteed to reach
+-- | Return @True@ if the given list of statements is guaranteed to
 -- reach a non-void return statement.
 reachableRet :: [Stmt] -> Bool
 reachableRet []       = False
@@ -173,6 +174,13 @@ checkStmt = \case
     checkedStmt <- checkStmt stmt
     return $ While annExp checkedStmt
 
+  ForEach typ ident expr stmt -> do
+    aExpr <- annotateWithType (Arr typ) expr
+    bindType ident typ
+    aStmt <- checkStmt stmt
+    unbindType ident
+    return $ ForEach typ ident aExpr aStmt
+
   SExp exp -> do
     (annExp, eType) <- annotate2 exp
     if eType `tEq` Void
@@ -206,7 +214,7 @@ checkMain = R.reader (M.lookup (Ident "main")) >>= \case
 
 -- | Run @annotate@ but throw an error if the inferred type does not
 -- match the given type.
-annotateWithType :: Type -> Expr -> TypeCheck Expr
+annotateWithType :: Stack.HasCallStack => Type -> Expr -> TypeCheck Expr
 annotateWithType expected exp = annotate exp >>= \case
   annExp@(AnnExp e t)
     | expected `tEq` t -> return annExp
@@ -214,7 +222,7 @@ annotateWithType expected exp = annotate exp >>= \case
   _ -> error "annotateWithType: `annotate` did not return an AnnExp expression"
 
 -- | Like @annotate@, but also return the type of the expression.
-annotate2 :: Expr -> TypeCheck (Expr, Type)
+annotate2 :: Stack.HasCallStack => Expr -> TypeCheck (Expr, Type)
 annotate2 exp = annotate exp >>= \case
   AnnExp e t -> return (e, t)
   _ -> error "annotate2: `annotate` did not return an AnnExp expression"
@@ -227,7 +235,7 @@ annotate topExp = do
   return $ AnnExp exp' eType
 
   where
-    ann :: TypeCheck (Expr, Type)
+    ann :: Stack.HasCallStack => TypeCheck (Expr, Type)
     ann = case topExp of
       ELitInt _    -> return (topExp, Int)
       ELitDouble _ -> return (topExp, Double)
@@ -326,7 +334,7 @@ annotate topExp = do
 -- * Functions related to modifying the environment.
 --
 
-bindArgs :: [Arg] -> TypeCheck ()
+bindArgs :: Stack.HasCallStack => [Arg] -> TypeCheck ()
 bindArgs args = ST.get >>= \case
   []     -> error "bindArgs: empty context stack"
   c : cs -> do
@@ -337,14 +345,20 @@ bindArgs args = ST.get >>= \case
     argToTuple :: Arg -> (Ident, Type)
     argToTuple (Argument typ id) = (id, typ)
 
-bindType :: Ident -> Type -> TypeCheck ()
+bindType :: Stack.HasCallStack => Ident -> Type -> TypeCheck ()
 bindType id typ = ST.get >>= \case
   []    -> error "bindType: empty context stack"
   c : _ -> case M.lookup id c of
     Just _  -> throw $ DuplicateDeclError id
     Nothing -> updateCxt (M.insert id typ)
 
-updateCxt :: (Context -> Context) -> TypeCheck ()
+unbindType :: Stack.HasCallStack => Ident -> TypeCheck ()
+unbindType ident = updateCxt $ \ cxt ->
+  if ident `M.member`cxt
+    then M.delete ident cxt
+    else error "unbindType: ident not found in top context"
+
+updateCxt :: Stack.HasCallStack => (Context -> Context) -> TypeCheck ()
 updateCxt f = ST.get >>= \case
   []     -> error "updateCxt: empty context stack"
   c : cs -> ST.put $ f c : cs
@@ -352,7 +366,7 @@ updateCxt f = ST.get >>= \case
 pushCxt :: TypeCheck ()
 pushCxt = ST.modify (M.empty :)
 
-popCxt :: TypeCheck ()
+popCxt :: Stack.HasCallStack => TypeCheck ()
 popCxt = ST.get >>= \case
   []     -> error "popCxt: empty context stack"
   _ : cs -> ST.put cs
