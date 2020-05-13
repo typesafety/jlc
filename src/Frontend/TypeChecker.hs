@@ -127,7 +127,7 @@ checkStmt = \case
     where
       checkItem :: Type -> Item -> TypeCheck Item
       checkItem expected item = case item of
-        NoInit id   -> do
+        NoInit id -> do
           bindType id expected
           return item
         Init id exp -> do
@@ -135,10 +135,10 @@ checkStmt = \case
           bindType id expected
           return $ Init id annExp
 
-  Ass id exp -> do
-    varType <- lookupVar id
+  Ass var exp -> do
+    varType <- lookupVar var
     annExp <- annotateWithType varType exp
-    return $ Ass id annExp
+    return $ Ass var annExp
 
   Incr id -> lookupVar id >>= \case
     Int -> return $ Incr id
@@ -370,11 +370,11 @@ getRet = ST.get >>= \ env -> case getRet' env of
 -- | Given an identifier, check if it exists in the current context stack.
 -- If so, return the type of its topmost ("latest") occurrence, or throw an
 -- error otherwise.
-lookupVar :: Ident -> TypeCheck Type
-lookupVar id = ST.get >>= \ cxts -> case lookupVar' id cxts of
+lookupVar :: Var -> TypeCheck Type
+lookupVar (ArrVar id _) = lookupVar (IdVar id)
+lookupVar (IdVar id)    = ST.get >>= \ cxts -> case lookupVar' id cxts of
   Just typ -> return typ
   Nothing  -> throw $ SymbolError id
-
   where
     lookupVar' :: Ident -> Env -> Maybe Type
     lookupVar' _ []        = Nothing

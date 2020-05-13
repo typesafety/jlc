@@ -24,11 +24,11 @@ data Error
 
   -- When attempting to increment a non-integer variable.
   -- (Name of variable) (Actual type)
-  | IncrTypeError Ident Type
+  | IncrTypeError Var Type
 
   -- When attempting to decrement a non-integer variable.
   -- (Name of variable) (Actual type)
-  | DecrTypeError Ident Type
+  | DecrTypeError Var Type
 
   -- When a variable or function is not found in the current context.
   -- (Name of variable/function)
@@ -64,6 +64,9 @@ data Error
   -- (Expression) (Inferred type of expression)
   | NonVoidSExpError Expr Type
 
+  -- Generic error for badly formed declarations.
+  | DeclFormError Item
+
   -- Generic, but main()-related error message.
   -- (Error message)
   | MainError String
@@ -85,13 +88,13 @@ instance Show Error where
       [ "Function `", pp id, "`: missing reachable return statement"
       ]
 
-    IncrTypeError id typ -> mconcat
-      [ "Incrementing (++) ", pp id, " requires type"
+    IncrTypeError var typ -> mconcat
+      [ "Incrementing (++) ", pp var, " requires type"
       , "int, but instead got type: ", pp typ
       ]
 
-    DecrTypeError id typ -> mconcat
-      [ "Decrementing (--) ", pp id, " requires type"
+    DecrTypeError var typ -> mconcat
+      [ "Decrementing (--) ", pp var, " requires type"
       , "int, but instead got type: ", pp typ
       ]
 
@@ -136,6 +139,11 @@ instance Show Error where
       , "    ", pp exp, "\n"
       , "had type:\n"
       , "    ", pp inferredType
+      ]
+
+    DeclFormError item -> mconcat
+      [ "Badly formed declaration of type:\n"
+      , "    ", pp item
       ]
 
     MainError str -> str

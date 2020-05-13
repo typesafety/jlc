@@ -21,6 +21,7 @@ import qualified Control.Monad.Reader as R
 prettyPrint :: Pretty a => Int -> a -> String
 prettyPrint n = flip runPrettyP n . pPrint
 
+-- | PrettyP keeps the indentation size in its environment.
 type PrettyP a = R.Reader Int a
 
 runPrettyP :: PrettyP a -> Int -> a
@@ -81,6 +82,15 @@ instance Pretty Type where
     Bool -> "boolean"
     Void -> "void"
     Str -> "STRING"
+
+instance Pretty Var where
+  pPrint (IdVar id)          = pPrint id
+  pPrint (ArrVar id arrIdxs) = do
+    xs <- concat <$> traverse pPrint arrIdxs
+    pPrint id <&> (++ xs)
+
+instance Pretty ArrIndex where
+  pPrint (ArrIndex e) = ("[" ++) <$> pPrint e <&> (++ "]")
 
 instance Pretty Item where
   pPrint (NoInit id)    = pPrint id
