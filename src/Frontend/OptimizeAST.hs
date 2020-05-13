@@ -83,6 +83,9 @@ optStmt = \case
 
   While expr stmt -> While <$> optExpr expr <*> optStmt stmt
 
+  ForEach typ ident expr stmt ->
+    ForEach typ ident <$> optExpr expr <*> optStmt stmt
+
   SExp expr -> SExp <$> optExpr expr
 
   -- Other cases and unexpected cases.
