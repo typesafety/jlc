@@ -235,8 +235,13 @@ annotate topExp = do
       ELitFalse    -> return (topExp, Bool)
       EString _    -> return (topExp, Str)
 
+      ENewArr t expr -> do
+        annExpr <- annotateWithType Int expr
+        let eType = Arr t
+        return (ENewArr eType annExpr, eType)
+
       ELength var -> lookupVar var >>= \case
-        Arr t -> return (topExp, t)
+        Arr t -> return (topExp, Int)
         t     -> throw $ NonArrayError topExp t
 
       EApp id exps -> R.reader (M.lookup id) >>= \case
