@@ -235,6 +235,10 @@ annotate topExp = do
       ELitFalse    -> return (topExp, Bool)
       EString _    -> return (topExp, Str)
 
+      ELength var -> lookupVar var >>= \case
+        Arr t -> return (topExp, t)
+        t     -> throw $ NonArrayError topExp t
+
       EApp id exps -> R.reader (M.lookup id) >>= \case
         Nothing -> throw $ SymbolError id
         Just (argTypes, retType) -> do
@@ -247,8 +251,8 @@ annotate topExp = do
 
           return (EApp id annExps, Fun retType argTypes)
 
-      EVar id -> do
-        typ <- lookupVar id
+      EVar var -> do
+        typ <- lookupVar var
         return (topExp, typ)
 
       Neg exp -> do

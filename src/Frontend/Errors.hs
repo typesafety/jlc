@@ -64,6 +64,11 @@ data Error
   -- (Expression) (Inferred type of expression)
   | NonVoidSExpError Expr Type
 
+  -- When an array-only operation (loop, length) is called on a variable
+  -- that is not of type array.
+  -- (Expression, expected array type) (Actual inferred type)
+  | NonArrayError Expr Type
+
   -- Generic error for badly formed declarations.
   | DeclFormError Item
 
@@ -138,6 +143,13 @@ instance Show Error where
       , " but the following expression:\n"
       , "    ", pp exp, "\n"
       , "had type:\n"
+      , "    ", pp inferredType
+      ]
+
+    NonArrayError expr inferredType -> mconcat
+      [ "Expected the following expression have an array type:\n"
+      , "    ", pp expr
+      , "but the actual type was:\n"
       , "    ", pp inferredType
       ]
 
