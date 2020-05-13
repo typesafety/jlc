@@ -68,7 +68,7 @@ renameDef (FnDef typ id args blk) = do
 renameBlk :: Blk -> Rename Blk
 renameBlk (Block stmts) = Block <$> mapM renameStmt stmts
 
-renameStmt :: Stmt -> Rename Stmt
+renameStmt :: Stack.HasCallStack => Stmt -> Rename Stmt
 renameStmt = \case
   BStmt blk -> do
     pushCxt
@@ -88,22 +88,16 @@ renameStmt = \case
         aVar <- newBindStepAlpha id
         return $ Init aVar aExpr
 
-  Ass (ArrVar ident arrIdxs) expr -> do
-    aExpr <- renameExpr expr
-    aArrIdxs <- mapM renameArrIdx arrIdxs
-    aIdent <- lookupVar (Original ident)
-    return $ Ass (ArrVar aIdent aArrIdxs) aExpr
-
-  Ass (IdVar ident) expr -> do
+  Ass var expr -> do
     -- Again, important to consider the order of evaluation; we
     -- do renaming on the expression FIRST.
     aExpr <- renameExpr expr
     -- Then, look up the a-var of the original id that is being assigned to.
-    aIdent <- lookupVar (Original ident)
-    return $ Ass (IdVar aIdent) aExpr
+    aVar <- renameVar var
+    return $ Ass aVar aExpr
 
-  Incr id -> Incr <$> lookupVar (Original id)
-  Decr id -> Decr <$> lookupVar (Original id)
+  Incr{} -> error "renameStmt: Unexpected Incr{}; should be desugared away."
+  Decr{} -> error "renameStmt: Unexpected Decr{}; should be desugared away."
 
   Ret expr -> Ret <$> renameExpr expr
 
@@ -132,17 +126,25 @@ renameStmt = \case
 renameArrIdx :: ArrIndex -> Rename ArrIndex
 renameArrIdx (ArrIndex e) = ArrIndex <$> renameExpr e
 
+renameVar :: Var -> Rename Var
+renameVar (IdVar ident)          = IdVar <$> lookupVar (Original ident)
+renameVar (ArrVar ident arrIdxs) = do
+  aArrIdxs <- mapM renameArrIdx arrIdxs
+  aIdent <- lookupVar (Original ident)
+  return $ ArrVar aIdent aArrIdxs
+
 renameExpr :: Expr -> Rename Expr
 renameExpr = \case
-  EVar id -> EVar <$> lookupVar (Original id)
-  EApp id exprs -> EApp id <$> mapM renameExpr exprs
-  Neg  expr -> Neg <$> renameExpr expr
-  Not  expr -> Not <$> renameExpr expr
-  EMul e1 op e2 -> binOpRename (flip EMul op) e1 e2
-  EAdd e1 op e2 -> binOpRename (flip EAdd op) e1 e2
-  ERel e1 op e2 -> binOpRename (flip ERel op) e1 e2
-  EAnd e1 e2    -> binOpRename EAnd e1 e2
-  EOr  e1 e2    -> binOpRename EOr e1 e2
+  ELength var     -> ELength <$> renameVar var
+  EVar var        -> EVar    <$> renameVar var
+  EApp id exprs   -> EApp id <$> mapM renameExpr exprs
+  Neg  expr       -> Neg <$> renameExpr expr
+  Not  expr       -> Not <$> renameExpr expr
+  EMul e1 op e2   -> binOpRename (flip EMul op) e1 e2
+  EAdd e1 op e2   -> binOpRename (flip EAdd op) e1 e2
+  ERel e1 op e2   -> binOpRename (flip ERel op) e1 e2
+  EAnd e1 e2      -> binOpRename EAnd e1 e2
+  EOr  e1 e2      -> binOpRename EOr e1 e2
   AnnExp expr typ -> flip AnnExp typ <$> renameExpr expr
 
   -- Catch-all for cases which do not need renaming.
