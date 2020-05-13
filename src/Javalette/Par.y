@@ -27,33 +27,35 @@ import Javalette.ErrM
   '--' { PT _ (TS _ 12) }
   '.' { PT _ (TS _ 13) }
   '/' { PT _ (TS _ 14) }
-  '::' { PT _ (TS _ 15) }
-  ';' { PT _ (TS _ 16) }
-  '<' { PT _ (TS _ 17) }
-  '<=' { PT _ (TS _ 18) }
-  '=' { PT _ (TS _ 19) }
-  '==' { PT _ (TS _ 20) }
-  '>' { PT _ (TS _ 21) }
-  '>=' { PT _ (TS _ 22) }
-  'String' { PT _ (TS _ 23) }
-  '[' { PT _ (TS _ 24) }
-  '[]' { PT _ (TS _ 25) }
-  ']' { PT _ (TS _ 26) }
-  'boolean' { PT _ (TS _ 27) }
-  'double' { PT _ (TS _ 28) }
-  'else' { PT _ (TS _ 29) }
-  'false' { PT _ (TS _ 30) }
-  'if' { PT _ (TS _ 31) }
-  'int' { PT _ (TS _ 32) }
-  'length' { PT _ (TS _ 33) }
-  'new' { PT _ (TS _ 34) }
-  'return' { PT _ (TS _ 35) }
-  'true' { PT _ (TS _ 36) }
-  'void' { PT _ (TS _ 37) }
-  'while' { PT _ (TS _ 38) }
-  '{' { PT _ (TS _ 39) }
-  '||' { PT _ (TS _ 40) }
-  '}' { PT _ (TS _ 41) }
+  ':' { PT _ (TS _ 15) }
+  '::' { PT _ (TS _ 16) }
+  ';' { PT _ (TS _ 17) }
+  '<' { PT _ (TS _ 18) }
+  '<=' { PT _ (TS _ 19) }
+  '=' { PT _ (TS _ 20) }
+  '==' { PT _ (TS _ 21) }
+  '>' { PT _ (TS _ 22) }
+  '>=' { PT _ (TS _ 23) }
+  'String' { PT _ (TS _ 24) }
+  '[' { PT _ (TS _ 25) }
+  '[]' { PT _ (TS _ 26) }
+  ']' { PT _ (TS _ 27) }
+  'boolean' { PT _ (TS _ 28) }
+  'double' { PT _ (TS _ 29) }
+  'else' { PT _ (TS _ 30) }
+  'false' { PT _ (TS _ 31) }
+  'for' { PT _ (TS _ 32) }
+  'if' { PT _ (TS _ 33) }
+  'int' { PT _ (TS _ 34) }
+  'length' { PT _ (TS _ 35) }
+  'new' { PT _ (TS _ 36) }
+  'return' { PT _ (TS _ 37) }
+  'true' { PT _ (TS _ 38) }
+  'void' { PT _ (TS _ 39) }
+  'while' { PT _ (TS _ 40) }
+  '{' { PT _ (TS _ 41) }
+  '||' { PT _ (TS _ 42) }
+  '}' { PT _ (TS _ 43) }
 
 L_ident  { PT _ (TV $$) }
 L_integ  { PT _ (TI $$) }
@@ -102,6 +104,7 @@ Stmt : ';' { Javalette.Abs.Empty }
      | 'if' '(' Expr ')' Stmt { Javalette.Abs.If $3 $5 }
      | 'if' '(' Expr ')' Stmt 'else' Stmt { Javalette.Abs.IfElse $3 $5 $7 }
      | 'while' '(' Expr ')' Stmt { Javalette.Abs.While $3 $5 }
+     | 'for' '(' Type Ident ':' Expr ')' Stmt { Javalette.Abs.ForEach $3 $4 $6 $8 }
      | Expr ';' { Javalette.Abs.SExp $1 }
 ListStmt :: { [Stmt] }
 ListStmt : {- empty -} { [] } | ListStmt Stmt { flip (:) $1 $2 }

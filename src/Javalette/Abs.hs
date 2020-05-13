@@ -38,6 +38,7 @@ data Stmt
     | If Expr Stmt
     | IfElse Expr Stmt Stmt
     | While Expr Stmt
+    | ForEach Type Ident Expr Stmt
     | SExp Expr
   deriving (Eq, Ord, Show, Read)
 
