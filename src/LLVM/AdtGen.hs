@@ -140,7 +140,7 @@ runConvert :: Env -> St -> Convert a -> a
 runConvert e s (Convert m) =
   fst $ ST.evalState (W.runWriterT (R.runReaderT m e)) s
 
--- Makes for more convenient use of pattern matching. If we encounter an
+-- Makes for more convenient pattern matching. If we encounter an
 -- unexpected value on a pattern match (for example, when reading the State
 -- to get the type of some variable), we do want to crash.
 instance Fail.MonadFail Convert where
@@ -402,8 +402,11 @@ convExpr e = case e of
   J.ENewArr jType jExpr -> do
     error "TODO"
 
-  J.ELength jVar -> do
-    error "TODO"
+  -- Currently only supports one-dimensional arrays; we make the assumption
+  -- that we never need to get the length of anything inside another array.
+  J.ELength (J.IdVar jIdent)-> do
+    TArray arrLen _ <- typeOfId $ transId Local jIdent
+    return $ L.srcI32 arrLen
 
   -- Currently does not support multi-dimensional arrays.
   J.EVar jArrVar@J.ArrVar{} -> do
