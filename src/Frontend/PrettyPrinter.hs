@@ -76,12 +76,14 @@ instance Pretty Type where
     pT <- pPrint t
     pTs <- intercalate "," <$> traverse pPrint ts
     pure $ "FUNCTION(" ++ pTs ++ ":" ++ pT
+  pPrint (Arr t) = pPrint t <&> (++ "[]")
   pPrint typ = pure $ case typ of
-    Int -> "int"
+    Int    -> "int"
     Double -> "double"
-    Bool -> "boolean"
-    Void -> "void"
-    Str -> "STRING"
+    Bool   -> "boolean"
+    Void   -> "void"
+
+    Str    -> "STRING"
 
 instance Pretty Var where
   pPrint (IdVar id)          = pPrint id
@@ -171,7 +173,14 @@ instance Pretty Stmt where
 
 instance Pretty Expr where
   pPrint = \case
-    EVar id -> pPrint id
+    ENewArr typ expr -> do
+      pTyp <- pPrint typ
+      pExpr <- pPrint expr
+      return $ mconcat ["new ", pTyp, "[", pExpr, "]"]
+
+    ELength var -> pPrint var <&> (++ ".length")
+
+    EVar var -> pPrint var
 
     ELitInt int       -> pure $ show int
     ELitDouble double -> pure $ show double
