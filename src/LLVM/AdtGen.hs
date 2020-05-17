@@ -324,7 +324,7 @@ convStmt s = case s of
   -- to be reworked to support multi-dimensional arrays.
   J.Ass (J.ArrVar jId jArrIdxs) jExpr -> do
     let storeId = transId Local jId
-    TPointer arrType@(TArray len valType) <- typeOf $ SIdent storeId
+    TPointer arrType@(TArray _ valType) <- typeOf $ SIdent storeId
 
     -- Calculate the indexes for the possibly nested arrays, though currently
     -- we always have only a single index (one-dimensional array).
@@ -419,6 +419,12 @@ of the earlier applies.
 -}
 convExpr :: Stack.HasCallStack => J.Expr -> Convert Source
 convExpr e = case e of
+  J.ENewArr jType jExpr -> do
+    error "TODO"
+
+  J.ELength jVar -> do
+    error "TODO"
+
   J.EVar jVar -> do
     let lId = transId Local
           $ case jVar of
