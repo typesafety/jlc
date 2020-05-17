@@ -426,10 +426,7 @@ convExpr e = case e of
     error "TODO"
 
   J.EVar jVar -> do
-    let lId = transId Local
-          $ case jVar of
-              J.IdVar  ident   -> ident
-              J.ArrVar ident _ -> ident
+    let lId = transVar Local jVar
     ptrType@(TPointer valType) <- typeOf $ SIdent lId
 
     assId <- nextVar
@@ -441,7 +438,7 @@ convExpr e = case e of
   J.EApp jId@(J.Ident "printString") [jExpr] -> do
     let funId = transId Global jId
     arrPtr <- convExpr jExpr
-    -- arrPtrV is a variable of type [n x i8]*
+    -- arrPtr is a variable of type [n x i8]*
     arrPtrType@(TPointer arrType) <- typeOf arrPtr
     let args = [ (arrPtrType, arrPtr)
                , (L.i32, L.srcI32 0)
@@ -598,6 +595,11 @@ convExpr e = case e of
 
 transId :: Scope -> J.Ident -> Ident
 transId scope (J.Ident str) = Ident scope str
+
+transVar :: Scope -> J.Var -> Ident
+transVar scope var = case var of
+  J.IdVar  ident   -> transId scope ident
+  J.ArrVar ident _ -> transId scope ident
 
 transType :: Stack.HasCallStack => J.Type -> Type
 transType = \case
