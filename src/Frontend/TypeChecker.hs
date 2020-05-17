@@ -246,7 +246,7 @@ annotate topExp = do
       ENewArr t expr -> do
         annExpr <- annotateWithType Int expr
         let eType = Arr t
-        return (ENewArr eType annExpr, eType)
+        return (ENewArr t annExpr, eType)
 
       ELength var -> lookupVar var >>= \case
         Arr t -> return (topExp, Int)
