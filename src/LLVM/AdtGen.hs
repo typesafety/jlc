@@ -320,7 +320,33 @@ convStmt s = case s of
     bindType lId (L.toPtr lType)
     tellI $ lId `L.alloca` lType
 
-  J.Ass jId jExpr -> do
+  -- For now, hardcoded case for one-dimensional arrays ONLY. Will need
+  -- to be reworked to support multi-dimensional arrays.
+  J.Ass (J.ArrVar jId jArrIdxs) jExpr -> do
+    let storeId = transId Local jId
+    TPointer arrType@(TArray len valType) <- typeOf $ SIdent storeId
+
+    -- Calculate the indexes for the possibly nested arrays, though currently
+    -- we always have only a single index (one-dimensional array).
+    --
+    -- We know that array indexes must be integers, so we can safely set
+    -- type i32 for all arguments.
+    idxsAsArgs <- zip (repeat L.i32)
+                  <$> mapM (\ (J.ArrIndex e) -> convExpr e) jArrIdxs
+
+    -- Get the pointer to the index we want to assign to. We do this by
+    -- constructing the appropriate getelementptr instruction.
+    ptrId <- nextVar  -- ptrId is the variable containing the pointer to the
+                      -- correct element in the array.
+    tellI $ L.getelementptr ptrId arrType idxsAsArgs
+
+    -- Knowing what type to store is not as easy for
+    -- multi-dimensional arrays, but simple in the one-dimensional case;
+    -- we simply wrap a TPointer arround the type of the array contents.
+    srcId <- convExpr jExpr
+    tellI $ L.store valType srcId (L.toPtr valType) ptrId
+
+  J.Ass (J.IdVar jId) jExpr -> do
     let storeId = transId Local jId
     srcId <- convExpr jExpr
     ptrType@(TPointer valType) <- typeOf $ SIdent storeId
@@ -571,6 +597,9 @@ transType = \case
   J.Bool   -> L.bool
   J.Void   -> TVoid
   J.Str    -> error "String type needs special care"
+  -- Set length to 0 for now, since we do not get the length
+  -- from the JL type alone.
+  J.Arr t  -> TArray 0 (transType t)
 
 --
 -- * State-related helper functions.
