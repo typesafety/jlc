@@ -141,6 +141,7 @@ renameVar (ArrVar ident arrIdxs) = do
 
 renameExpr :: Expr -> Rename Expr
 renameExpr = \case
+  ENewArr t expr  -> ENewArr t <$> renameExpr expr
   ELength var     -> ELength <$> renameVar var
   EVar var        -> EVar    <$> renameVar var
   EApp id exprs   -> EApp id <$> mapM renameExpr exprs
