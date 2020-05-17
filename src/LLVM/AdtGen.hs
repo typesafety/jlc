@@ -419,8 +419,11 @@ of the earlier applies.
 -}
 convExpr :: Stack.HasCallStack => J.Expr -> Convert Source
 convExpr e = case e of
-  J.EVar jId -> do
-    let lId = transId Local jId
+  J.EVar jVar -> do
+    let lId = transId Local
+          $ case jVar of
+              J.IdVar  ident   -> ident
+              J.ArrVar ident _ -> ident
     ptrType@(TPointer valType) <- typeOf $ SIdent lId
 
     assId <- nextVar
