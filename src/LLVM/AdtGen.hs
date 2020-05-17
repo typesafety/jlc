@@ -320,31 +320,11 @@ convStmt s = case s of
     bindType lId (L.toPtr lType)
     tellI $ lId `L.alloca` lType
 
-  -- For now, hardcoded case for one-dimensional arrays ONLY. Will need
-  -- to be reworked to support multi-dimensional arrays.
-  J.Ass (J.ArrVar jId jArrIdxs) jExpr -> do
-    let storeId = transId Local jId
-    TPointer arrType@(TArray _ valType) <- typeOf $ SIdent storeId
-
-    -- Calculate the indexes for the possibly nested arrays, though currently
-    -- we always have only a single index (one-dimensional array).
-    --
-    -- We know that array indexes must be integers, so we can safely set
-    -- type i32 for all arguments.
-    idxsAsArgs <- zip (repeat L.i32)
-                  <$> mapM (\ (J.ArrIndex e) -> convExpr e) jArrIdxs
-
-    -- Get the pointer to the index we want to assign to. We do this by
-    -- constructing the appropriate getelementptr instruction.
-    ptrId <- nextVar  -- ptrId is the variable containing the pointer to the
-                      -- correct element in the array.
-    tellI $ L.getelementptr ptrId arrType idxsAsArgs
-
-    -- Knowing what type to store is not as easy for
-    -- multi-dimensional arrays, but simple in the one-dimensional case;
-    -- we simply wrap a TPointer arround the type of the array contents.
+  -- Currently does not support multi-dimensional arrays.
+  J.Ass jArrVar@J.ArrVar{} jExpr -> do
+    (ptrId, TArray _ contentType) <- indexing jArrVar
     srcId <- convExpr jExpr
-    tellI $ L.store valType srcId (L.toPtr valType) ptrId
+    tellI $ L.store contentType srcId (L.toPtr contentType) ptrId
 
   J.Ass (J.IdVar jId) jExpr -> do
     let storeId = transId Local jId
@@ -425,33 +405,14 @@ convExpr e = case e of
   J.ELength jVar -> do
     error "TODO"
 
-  -- Hardcoded case for one-dimensional arrays. Will need rework
-  -- in order to support multi-dimensional arrays.
-  J.EVar (J.ArrVar jIdent jArrIdxs) -> do
-    let lIdent = transId Local jIdent
-    TPointer arrType@(TArray _ valType) <- typeOf $ SIdent lIdent
+  -- Currently does not support multi-dimensional arrays.
+  J.EVar jArrVar@J.ArrVar{} -> do
+    (ptrId, TArray _ contentType) <- indexing jArrVar
 
-    -- Calculate the indexes for the possibly nested arrays, though currently
-    -- we always have only a single index (one-dimensional array).
-    --
-    -- We know that array indexes must be integers, so we can safely set
-    -- type i32 for all arguments.
-    idxsAsArgs <- zip (repeat L.i32)
-                  <$> mapM (\ (J.ArrIndex e) -> convExpr e) jArrIdxs
-
-    -- Get the pointer to the index we want to assign to. We do this by
-    -- constructing the appropriate getelementptr instruction.
-    ptrId <- nextVar  -- ptrId is the variable containing the pointer to the
-                      -- correct element in the array.
-    tellI $ L.getelementptr ptrId arrType idxsAsArgs
-
-    -- Knowing what type to store is not as easy for
-    -- multi-dimensional arrays, but simple in the one-dimensional case;
-    -- we simply wrap a TPointer arround the type of the array contents.
     assId <- nextVar
-    tellI $ (assId `L.load` valType) (L.toPtr valType) ptrId
+    tellI $ (assId `L.load` contentType) (L.toPtr contentType) ptrId
 
-    bindRetId assId valType
+    bindRetId assId contentType
 
   J.EVar (J.IdVar jIdent) -> do
     let lId = transId Local jIdent
@@ -659,6 +620,9 @@ typeOf :: Source -> Convert Type
 typeOf (SIdent id)     = unsafeLookup id <$> use stTypeTable
 typeOf (SVal typ _lit) = return typ
 
+typeOfId :: Ident -> Convert Type
+typeOfId ident = unsafeLookup ident <$> use stTypeTable
+
 -- | Add a string as a global variable and return its Ident.
 addGlobalStr :: String -> Convert Ident
 addGlobalStr str = do
@@ -702,6 +666,25 @@ varBase, globalBase, labelBase :: String
 varBase    = "var"
 globalBase = "gvar"
 labelBase  = "label"
+
+--
+-- * Array-related helper functions
+--
+
+{- | Return a variable with the pointer to an index in some array,
+along with the type of the array (length and content type).
+-}
+indexing :: Stack.HasCallStack => J.Var -> Convert (Ident, Type)
+indexing J.IdVar{} = error "indexing: argument was not an array index"
+indexing (J.ArrVar jId jArrIdxs) = do
+  TPointer arrType <- typeOfId $ transId Local jId
+  -- Since array indexes can only be integers, we can safely set all
+  -- arguments to type i32.
+  idxsAsArgs <- zip (repeat L.i32)
+                <$> mapM (\ (J.ArrIndex e) -> convExpr e) jArrIdxs
+  ptrId <- nextVar
+  tellI $ L.getelementptr ptrId arrType idxsAsArgs
+  return (ptrId, arrType)
 
 --
 -- * Other helper functions
