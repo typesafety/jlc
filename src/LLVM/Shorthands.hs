@@ -4,6 +4,8 @@ condense construction of LLVM ADT types.
 
 module LLVM.Shorthands where
 
+import qualified GHC.Stack as Stack
+
 import LLVM.ADT
 
 --
@@ -116,6 +118,11 @@ callV funId args = INoAss $ IOther $ Call TVoid funId args
 
 call :: Ident -> Type -> Ident -> [Arg] -> Instruction
 call assId retType funId args = IAss assId (IOther $ Call retType funId args)
+
+ptrtoint :: Stack.HasCallStack
+         => Ident -> Type -> Source -> Type -> Instruction
+ptrtoint assId ptrType@TPointer{} src intType@TNBitInt{} =
+  IAss assId (IOther $ Ptrtoint ptrType src intType)
 
 --
 -- * Instruction shorthands (arithmetic)

@@ -153,11 +153,14 @@ instance Fail.MonadFail Convert where
 -- | Some external function definitions that should always be included.
 stdExtFunDefs :: [FunDecl]
 stdExtFunDefs =
+  -- I/O
   [ FunDecl L.i32   (L.globalId "readInt")     []
   , FunDecl TDouble (L.globalId "readDouble")  []
   , FunDecl TVoid   (L.globalId "printInt")    [L.i32]
   , FunDecl TVoid   (L.globalId "printDouble") [TDouble]
   , FunDecl TVoid   (L.globalId "printString") [L.toPtr L.i8]
+  -- Zero-indexed i32 memory allocation (used for arrays).
+  , FunDecl (L.toPtr L.i32) (L.globalId "calloc") [L.i32, L.i32]
   ]
 
 --
@@ -400,7 +403,27 @@ of the earlier applies.
 convExpr :: Stack.HasCallStack => J.Expr -> Convert Source
 convExpr e = case e of
   J.ENewArr jType jExpr -> do
-    error "TODO"
+    -- Number of allocations (size of array)
+    srcId <- convExpr jExpr
+
+    -- Get the size of the i32 type
+    [v, size_t] <- replicateM 2 nextVar
+    tellI $ (v `L.getelementptr` L.i32) [(L.toPtr L.i32, L.srcNull)]
+    tellI $ (size_t `L.ptrtoint` L.toPtr L.i32) (SIdent v) L.i32
+
+    arrPtr <- nextVar
+    let retType = L.toPtr L.i32
+    let funId   = L.globalId "calloc"
+    let args    = [Arg L.i32 srcId, Arg L.i32 (SIdent size_t)]
+    tellI $ (arrPtr `L.call` retType) funId args
+
+
+    -- TODO: ^currently, arrPtr is of type i32*, is this correct? Probably?
+
+    -- TODO: Check how we make use of calloc to create new arrs
+    -- ALSO Important: J.Ass case in convStmt needs to check the
+    -- result from convExpr maybe? in order to set the new array size?
+    bindRetId arrPtr retType
 
   -- Currently only supports one-dimensional arrays; we make the assumption
   -- that we never need to get the length of anything inside another array.
