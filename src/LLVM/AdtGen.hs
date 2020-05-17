@@ -425,8 +425,36 @@ convExpr e = case e of
   J.ELength jVar -> do
     error "TODO"
 
-  J.EVar jVar -> do
-    let lId = transVar Local jVar
+  -- Hardcoded case for one-dimensional arrays. Will need rework
+  -- in order to support multi-dimensional arrays.
+  J.EVar (J.ArrVar jIdent jArrIdxs) -> do
+    let lIdent = transId Local jIdent
+    TPointer arrType@(TArray _ valType) <- typeOf $ SIdent lIdent
+
+    -- Calculate the indexes for the possibly nested arrays, though currently
+    -- we always have only a single index (one-dimensional array).
+    --
+    -- We know that array indexes must be integers, so we can safely set
+    -- type i32 for all arguments.
+    idxsAsArgs <- zip (repeat L.i32)
+                  <$> mapM (\ (J.ArrIndex e) -> convExpr e) jArrIdxs
+
+    -- Get the pointer to the index we want to assign to. We do this by
+    -- constructing the appropriate getelementptr instruction.
+    ptrId <- nextVar  -- ptrId is the variable containing the pointer to the
+                      -- correct element in the array.
+    tellI $ L.getelementptr ptrId arrType idxsAsArgs
+
+    -- Knowing what type to store is not as easy for
+    -- multi-dimensional arrays, but simple in the one-dimensional case;
+    -- we simply wrap a TPointer arround the type of the array contents.
+    assId <- nextVar
+    tellI $ (assId `L.load` valType) (L.toPtr valType) ptrId
+
+    bindRetId assId valType
+
+  J.EVar (J.IdVar jIdent) -> do
+    let lId = transId Local jIdent
     ptrType@(TPointer valType) <- typeOf $ SIdent lId
 
     assId <- nextVar
@@ -595,11 +623,6 @@ convExpr e = case e of
 
 transId :: Scope -> J.Ident -> Ident
 transId scope (J.Ident str) = Ident scope str
-
-transVar :: Scope -> J.Var -> Ident
-transVar scope var = case var of
-  J.IdVar  ident   -> transId scope ident
-  J.ArrVar ident _ -> transId scope ident
 
 transType :: Stack.HasCallStack => J.Type -> Type
 transType = \case
