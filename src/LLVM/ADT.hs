@@ -127,6 +127,7 @@ data OtherOp
   | Call Type Ident [Arg]
   | Sitofp Type Source Type
   | Ptrtoint Type Source Type
+  | Bitcast Type Source Type
   | Zext Type Source Type
   deriving (Eq, Show)
 

@@ -28,6 +28,9 @@ localId = Ident Local
 toPtr :: Type -> Type
 toPtr = TPointer
 
+i32ptr :: Type
+i32ptr = toPtr i32
+
 -- | Shorthand for creating integers of size n bits.
 iBit :: Int -> Type
 iBit = TNBitInt
@@ -51,6 +54,24 @@ than only literals as printString arguments, this would need to change.
 -}
 strType :: String -> Type
 strType str = TPointer $ TArray (length str + 1) i8
+
+--
+-- * Array-related shorthands
+--
+
+-- | Indices to be used in getelementptr.
+idx :: Int -> (Type, Source)
+idx n = (i32, srcI32 n)
+
+-- | Array of variable (0) length. "Standard".
+arrType :: Type
+arrType = TArray 0 i32
+
+{- | Representation of a JL array; represented as a 2-struct containing the
+length of the array and a pointer to the actual array ("with zero length").
+-}
+jlArrType :: Type
+jlArrType = TStruct [i32, toPtr arrType]
 
 --
 -- * Source shorthands
@@ -118,6 +139,9 @@ callV funId args = INoAss $ IOther $ Call TVoid funId args
 
 call :: Ident -> Type -> Ident -> [Arg] -> Instruction
 call assId retType funId args = IAss assId (IOther $ Call retType funId args)
+
+bitcast :: Ident -> Type -> Source -> Type -> Instruction
+bitcast assId t1 src t2 = IAss assId (IOther $ Bitcast t1 src t2)
 
 ptrtoint :: Stack.HasCallStack
          => Ident -> Type -> Source -> Type -> Instruction

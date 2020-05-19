@@ -65,19 +65,22 @@ type TypeTable = M.Map Ident Type
   need rework if the language specification changes. The only only
   operations on this map should be _unique_ insertions, and reads.
 @stTypeTable@ - Keeps track of types of variables.
+@stNewArrType@ - A bit of a hack; when we evaluate the ENewArr expression,
+  we store the type in this list, and when we use it, we remove it.
 -}
 data St = St
   { _stGlobalCount :: Int
-  , _stVarCount :: Int
-  , _stLabelCount :: Int
-  , _stGlobalVars :: StringTable
-  , _stTypeTable :: TypeTable
+  , _stVarCount    :: Int
+  , _stLabelCount  :: Int
+  , _stGlobalVars  :: StringTable
+  , _stTypeTable   :: TypeTable
+  , _stNewArrType  :: [Type]
   }
 
 $(makeLenses ''St)
 
 initSt :: St
-initSt = St 0 0 0 M.empty M.empty
+initSt = St 0 0 0 M.empty M.empty []
 
 type Signatures = M.Map Ident FunDecl
 
@@ -402,28 +405,45 @@ of the earlier applies.
 -}
 convExpr :: Stack.HasCallStack => J.Expr -> Convert Source
 convExpr e = case e of
+  -- We represent JL arrays as a LLVM 2-field struct as such:
+  -- {i32, [n x i32]*}
+  -- This allows us to keep the array length as well (important!)
   J.ENewArr jType jExpr -> do
-    -- Number of allocations (size of array)
-    srcId <- convExpr jExpr
+    -- Get the array size.
+    arr_size_src <- convExpr jExpr
 
-    -- Get the size of the i32 type
-    [v, size_t] <- replicateM 2 nextVar
-    tellI $ (v `L.getelementptr` L.i32) [(L.toPtr L.i32, L.srcNull)]
-    tellI $ (size_t `L.ptrtoint` L.toPtr L.i32) (SIdent v) L.i32
+    -- Get the size of the i32 type (size_t).
+    size_t_src <- i32size
 
-    arrPtr <- nextVar
-    let retType = L.toPtr L.i32
-    let funId   = L.globalId "calloc"
-    let args    = [Arg L.i32 srcId, Arg L.i32 (SIdent size_t)]
-    tellI $ (arrPtr `L.call` retType) funId args
+    -- Allocate memory for the structure.
+    struct_ptr <- nextVar
+    tellI $ L.alloca struct_ptr L.jlArrType
 
+    -- Store the length of the array in the structure.
+    struct_len_ptr <- nextVar
+    tellI $ (struct_len_ptr `L.getelementptr` L.jlArrType)
+              [(L.toPtr L.jlArrType, SIdent struct_ptr), L.idx 0, L.idx 0]
+    tellI $ L.store L.i32 arr_size_src L.i32ptr struct_len_ptr
 
-    -- TODO: ^currently, arrPtr is of type i32*, is this correct? Probably?
+    -- Zero-allocate the correct number of cells for the array-part
+    -- of the structure.
+      -- Use calloc to create a pointer to zero-allocated elements.
+    cells_ptr <- nextVar
+    tellI $ (cells_ptr `L.call` L.i32ptr) (L.globalId "calloc")
+              [Arg L.i32 arr_size_src, Arg L.i32 size_t_src]
+      -- Cast the pointer to the cells into a pointer to a variable length
+      -- LLVM array.
+    arr_ptr <- nextVar
+    tellI $ L.bitcast arr_ptr L.i32ptr (SIdent cells_ptr) (L.toPtr L.arrType)
+      -- Store the pointer to the array at the array-part of the structure.
+    struct_arr_ptr <- nextVar
+    tellI $ (struct_arr_ptr `L.getelementptr` L.jlArrType)
+              [(L.toPtr L.jlArrType, SIdent arr_ptr), L.idx 0, L.idx 1]
+    tellI $ L.store
+            (L.toPtr L.arrType) (SIdent arr_ptr)
+            (L.toPtr (L.toPtr L.arrType)) struct_arr_ptr
 
-    -- TODO: Check how we make use of calloc to create new arrs
-    -- ALSO Important: J.Ass case in convStmt needs to check the
-    -- result from convExpr maybe? in order to set the new array size?
-    bindRetId arrPtr retType
+    bindRetId struct_ptr (L.toPtr L.jlArrType)
 
   -- Currently only supports one-dimensional arrays; we make the assumption
   -- that we never need to get the length of anything inside another array.
@@ -598,11 +618,16 @@ convExpr e = case e of
       tellI $ L.arith (getOp jOp retType) assId retType srcId1 srcId2
       bindRetId assId retType
 
-    bindRetId :: Ident -> Type -> Convert Source
-    bindRetId id typ = bindType id typ >> retId id
+--
+-- * Conversion related helper functions
+--
 
-    retId :: Ident -> Convert Source
-    retId id = return $ SIdent id
+-- | Bind a type to an ident in the state and return the ident as an SIdent.
+bindRetId :: Ident -> Type -> Convert Source
+bindRetId id typ = bindType id typ >> retId id
+
+retId :: Ident -> Convert Source
+retId id = return $ SIdent id
 
 --
 -- * Functions for translating from Javalette ADT to LLVM ADT.
@@ -656,6 +681,16 @@ addGlobalStr str = do
   modifying stGlobalVars (M.insert (GlobalVar id) (StringLit str))
   return id
 
+-- | Return the stored array type and set it to Nothing.
+consumeNewArrType :: Stack.HasCallStack => Convert Type
+consumeNewArrType = use stNewArrType >>= \case
+  []     -> error "getNewArrType: Nothing"
+  t : ts -> assign stNewArrType ts >> return t
+
+putNewArrType :: Type -> Convert ()
+putNewArrType t = modifying stNewArrType (t :)
+
+
 {- | Return the count in the state pointed to by the given lens,
 then increment the count.
 -}
@@ -696,6 +731,15 @@ labelBase  = "label"
 --
 -- * Array-related helper functions
 --
+
+i32size :: Convert Source
+i32size = do
+  [v, size_t] <- replicateM 2 nextVar
+  let idx n = (L.i32, L.srcI32 n)
+  tellI $ (v `L.getelementptr` L.i32)
+            [(L.toPtr L.i32, L.srcNull), idx 1]
+  tellI $ (size_t `L.ptrtoint` L.toPtr L.i32) (SIdent v) L.i32
+  retId size_t
 
 {- | Return a variable with the pointer to an index in some array,
 along with the type of the array (length and content type).
