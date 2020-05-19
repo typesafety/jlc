@@ -745,20 +745,47 @@ sizeOf t = do
   tellI $ (size_t `L.ptrtoint` L.toPtr t) (SIdent v) L.i32
   retId size_t
 
-{- | Return a variable with the pointer to an index in some array,
-along with the type of the array (length and content type).
+{- | Return a variable with the pointer to an index in some array.
+Needs the JL Var and the type of the array contents.
 -}
-indexing :: Stack.HasCallStack => J.Var -> Convert (Ident, Type)
-indexing J.IdVar{} = error "indexing: argument was not an array index"
-indexing (J.ArrVar jId jArrIdxs) = do
-  TPointer arrType <- typeOfId $ transId Local jId
+indexing :: Stack.HasCallStack => J.Var -> Type -> Convert Ident
+indexing J.IdVar{} _ = error "indexing: argument was not an array index"
+indexing (J.ArrVar jIdent jArrIdxs) t = do
   -- Since array indexes can only be integers, we can safely set all
   -- arguments to type i32.
   idxsAsArgs <- zip (repeat L.i32)
                 <$> mapM (\ (J.ArrIndex e) -> convExpr e) jArrIdxs
-  ptrId <- nextVar
-  tellI $ L.getelementptr ptrId arrType idxsAsArgs
-  return (ptrId, arrType)
+
+  -- jlArrType is our representation of a JL type; a structure.
+  storedAt <- typeOfId $ transId Local jIdent
+  let TPointer jlArrPtrType = storedAt
+  let TPointer jlArrType    = jlArrPtrType
+
+  -- Load the pointer to the struct.
+  let lIdent = transId Local jIdent
+  ptr_to_struct <- nextVar
+  tellI $ (ptr_to_struct `L.load` jlArrPtrType) storedAt lIdent
+
+  -- Get a pointer that points to the pointer to the LLVM array in the struct.
+  -- That is, arrPtrPtr has type [0 x t]**
+  arrPtrPtr <- nextVar
+  tellI $ (arrPtrPtr `L.getelementptr` jlArrType)
+            [(jlArrPtrType, SIdent ptr_to_struct), L.idx 0, L.idx 1]
+
+  -- arrPtr :: [0 x t]*
+  arrPtr <- nextVar
+  tellI $ L.load
+            arrPtr
+            (L.toPtr (L.arrType t))
+            (L.toPtr (L.toPtr (L.arrType t)))
+            arrPtrPtr
+
+  -- Now we can use getelementptr to the the pointer to the correct index.
+  idxPtr <- nextVar
+  tellI $ (idxPtr `L.getelementptr` L.arrType t)
+            (L.toPtr (L.arrType t) : idxsAsArgs)
+
+  return idxPtr
 
 --
 -- * Other helper functions
