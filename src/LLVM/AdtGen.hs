@@ -452,9 +452,10 @@ convExpr e = case e of
 
   -- Currently only supports one-dimensional arrays; we make the assumption
   -- that we never need to get the length of anything inside another array.
+  -- For such support, we'd need to add the J.ArrVar case as well.
   J.ELength (J.IdVar jIdent) -> do
     let lIdent = transId Local jIdent
-    jlArrPtrType@(TPointer jlArrType) <- typeOfId jIdent
+    jlArrPtrType@(TPointer jlArrType) <- typeOfId $ transId Local jIdent
 
     -- Get pointer to array representation.
     jlArrPtr <- nextVar
@@ -463,7 +464,7 @@ convExpr e = case e of
     -- Get pointer to array length.
     lenPtr <- nextVar
     tellI $ (lenPtr `L.getelementptr` jlArrType)
-              [(jlArrPtrType, jlArrPtr), L.idx 0, L.idx 0]
+              [(jlArrPtrType, SIdent jlArrPtr), L.idx 0, L.idx 0]
 
     -- Get array length value.
     lenVal <- nextVar
@@ -760,12 +761,20 @@ sizeOf t = do
   tellI $ (size_t `L.ptrtoint` L.toPtr t) (SIdent v) L.i32
   retId size_t
 
-{- | Return a variable with the pointer to an index in some array.
-Needs the JL Var and the type of the array contents.
+{- | Return the type of the content of an array, or crash if the input
+is not of the correct JL array representation ({i32, [0 x t]})
 -}
-indexing :: Stack.HasCallStack => J.Var -> Type -> Convert Ident
-indexing J.IdVar{} _ = error "indexing: argument was not an array index"
-indexing (J.ArrVar jIdent jArrIdxs) t = do
+arrContentType :: Stack.HasCallStack => Type -> Type
+arrContentType (TStruct [_, TPointer (TArray _ t)]) = t
+arrContentType t = error
+  $ "arrContentType: input type not of correct form, got:\n" ++ show t ++ "\n"
+
+{- | Given a JL array variable, return a variable containing the pointer to
+an index in the array in memory.
+-}
+indexing :: Stack.HasCallStack => J.Var -> Convert Ident
+indexing J.IdVar{} = error "indexing: argument was not an array index"
+indexing (J.ArrVar jIdent jArrIdxs) = do
   -- Since array indexes can only be integers, we can safely set all
   -- arguments to type i32.
   idxsAsArgs <- zip (repeat L.i32)
@@ -775,6 +784,7 @@ indexing (J.ArrVar jIdent jArrIdxs) t = do
   storedAt <- typeOfId $ transId Local jIdent
   let TPointer jlArrPtrType = storedAt
   let TPointer jlArrType    = jlArrPtrType
+  let t = arrContentType jlArrType
 
   -- Load the pointer to the struct.
   let lIdent = transId Local jIdent
@@ -798,7 +808,7 @@ indexing (J.ArrVar jIdent jArrIdxs) t = do
   -- Now we can use getelementptr to the the pointer to the correct index.
   idxPtr <- nextVar
   tellI $ (idxPtr `L.getelementptr` L.arrType t)
-            (L.toPtr (L.arrType t) : idxsAsArgs)
+            ((L.toPtr (L.arrType t), SIdent arrPtr) : idxsAsArgs)
 
   return idxPtr
 
