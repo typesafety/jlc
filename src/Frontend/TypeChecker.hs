@@ -264,7 +264,12 @@ annotate topExp = do
 
           return (EApp id annExps, Fun retType argTypes)
 
-      EVar var -> do
+      -- Does not support multi-dimensional arrays.
+      EVar var@ArrVar{} -> lookupVar var >>= \case
+        Arr t -> return (topExp, t)
+        t -> error $ "ann: ArrVar was not of type Arr, but rather: " ++ show t
+
+      EVar var@IdVar{} -> do
         typ <- lookupVar var
         return (topExp, typ)
 
