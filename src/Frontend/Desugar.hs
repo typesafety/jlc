@@ -1,5 +1,5 @@
-{-# LANGUAGE LambdaCase    #-}
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE LambdaCase      #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {- | Module for running various desugaring conversions, keeping
 the semantics intact but simplifying the syntax. This will be
@@ -13,22 +13,25 @@ module Frontend.Desugar
        ( desugar
        ) where
 
+import qualified Control.Monad.State.Strict as ST
+import qualified Lens.Micro.Platform as L
+
 import Javalette.Abs
 
 
-newtype Desugar a = Desugar a
-  deriving (Functor)
+newtype St = St
+  { _stCounter :: Int  -- ^ Counter for new variables to keep the unique.
+  }
 
-instance Applicative Desugar where
-  pure = Desugar
-  Desugar f <*> aa = fmap f aa
+$(L.makeLenses ''St)
 
-instance Monad Desugar where
-  return  = pure
-  m >>= f = f . runDesugar $ m
+type Desugar a = ST.State St a
 
 runDesugar :: Desugar a -> a
-runDesugar (Desugar a) = a
+runDesugar = flip ST.evalState initSt
+  where
+    initSt :: St
+    initSt = St 0
 
 desugar :: Prog -> Prog
 desugar = runDesugar . desugar'
@@ -96,8 +99,32 @@ dsgStmt = \case
   While expr stmt -> Right
     <$> (While <$> dsgExpr expr <*> handleS stmt)
 
-  ForEach typ ident expr stmt -> Right
-    <$> (ForEach typ ident <$> dsgExpr expr <*> handleS stmt)
+  -- We can rewrite ForEach as a While-statement.
+  ForEach typ ident expr stmt -> do
+    counterId  <- nextIdent
+    arrExprId  <- nextIdent
+
+    let counterDecl = Decl Int [Init counterId (ELitInt 0)]
+    let exprIdDecl  = Decl (Arr typ) [Init arrExprId expr]
+    let condExpr    = ERel (EVar (IdVar ident)) LTH (ELength (IdVar arrExprId))
+    let incr        = Incr (IdVar counterId)
+    let bindToId    =
+          Decl typ
+            [ Init
+              ident
+              (EVar (ArrVar arrExprId [ArrIndex (EVar (IdVar counterId))]))
+            ]
+    let new =
+          [ counterDecl
+          , exprIdDecl
+          , While condExpr (BStmt (Block
+              [ bindToId
+              , stmt
+              , incr
+              ]
+            ))
+          ]
+    Left . concatMap (either id (: [])) <$> mapM dsgStmt new
 
   SExp expr -> Right . SExp <$> dsgExpr expr
 
@@ -117,3 +144,17 @@ dsgStmt = \case
 -- | Expression desugaring can be added here if applicable needed.
 dsgExpr :: Expr -> Desugar Expr
 dsgExpr = pure
+
+--
+-- * State-related helper functions
+--
+
+nextIdent :: Desugar Ident
+nextIdent = do
+  ident <- Ident . (identBase ++ ) . show <$> L.use stCounter
+  L.modifying stCounter (+ 1)
+  return ident
+
+-- | Arbitrary prefix string that is not used elsewhere in the compiler.
+identBase :: String
+identBase = "i"
