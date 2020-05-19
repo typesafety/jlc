@@ -473,11 +473,11 @@ convExpr e = case e of
     bindRetId lenVal L.i32
 
   -- Currently does not support multi-dimensional arrays.
-  J.EVar jArrVar@J.ArrVar{} -> do
-    (ptrId, TArray _ contentType) <- indexing jArrVar
+  J.EVar jArrVar@(J.ArrVar jId jArrIdxs) -> do
+    (idxPtr, contentType) <- indexing jArrVar
 
     assId <- nextVar
-    tellI $ (assId `L.load` contentType) (L.toPtr contentType) ptrId
+    tellI $ (assId `L.load` contentType) (L.toPtr contentType) idxPtr
 
     bindRetId assId contentType
 
@@ -770,9 +770,11 @@ arrContentType t = error
   $ "arrContentType: input type not of correct form, got:\n" ++ show t ++ "\n"
 
 {- | Given a JL array variable, return a variable containing the pointer to
-an index in the array in memory.
+an index in the array in memory, and its type if dereferenced.
+For example, a possible return value would be something like
+@(Ident Local "ptr", i32)@, where %ptr has type i32*.
 -}
-indexing :: Stack.HasCallStack => J.Var -> Convert Ident
+indexing :: Stack.HasCallStack => J.Var -> Convert (Ident, Type)
 indexing J.IdVar{} = error "indexing: argument was not an array index"
 indexing (J.ArrVar jIdent jArrIdxs) = do
   -- Since array indexes can only be integers, we can safely set all
@@ -784,6 +786,8 @@ indexing (J.ArrVar jIdent jArrIdxs) = do
   storedAt <- typeOfId $ transId Local jIdent
   let TPointer jlArrPtrType = storedAt
   let TPointer jlArrType    = jlArrPtrType
+  -- t is the type of the contents of the array (and also the
+  -- type to be returned).
   let t = arrContentType jlArrType
 
   -- Load the pointer to the struct.
@@ -810,7 +814,7 @@ indexing (J.ArrVar jIdent jArrIdxs) = do
   tellI $ (idxPtr `L.getelementptr` L.arrType t)
             ((L.toPtr (L.arrType t), SIdent arrPtr) : idxsAsArgs)
 
-  return idxPtr
+  return (idxPtr, t)
 
 --
 -- * Other helper functions
