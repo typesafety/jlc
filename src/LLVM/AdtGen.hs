@@ -335,7 +335,7 @@ convStmt s = case s of
   J.Ass (J.IdVar jId) jExpr -> do
     let storeId = transId Local jId
     srcId <- convExpr jExpr
-    ptrType@(TPointer valType) <- typeOf $ SIdent storeId
+    ptrType@(TPointer valType) <- typeOfId storeId
     tellI $ L.store valType srcId ptrType storeId
 
   J.Ret jExpr -> do
@@ -408,21 +408,26 @@ convExpr e = case e of
   -- We represent JL arrays as a LLVM 2-field struct as such:
   -- {i32, [n x i32]*}
   -- This allows us to keep the array length as well (important!)
-  J.ENewArr jType jExpr -> do
+  J.ENewArr (J.Arr jType) jExpr -> do
+    -- Get the type of the contents of the array.
+    let t = transType jType
+    let arrType   = L.arrType t
+    let jlArrType = L.jlArrType t
+
     -- Get the array size.
     arr_size_src <- convExpr jExpr
 
     -- Get the size of the i32 type (size_t).
-    size_t_src <- i32size
+    size_t_src <- sizeOf t
 
     -- Allocate memory for the structure.
     struct_ptr <- nextVar
-    tellI $ L.alloca struct_ptr L.jlArrType
+    tellI $ L.alloca struct_ptr jlArrType
 
     -- Store the length of the array in the structure.
     struct_len_ptr <- nextVar
-    tellI $ (struct_len_ptr `L.getelementptr` L.jlArrType)
-              [(L.toPtr L.jlArrType, SIdent struct_ptr), L.idx 0, L.idx 0]
+    tellI $ (struct_len_ptr `L.getelementptr` jlArrType)
+              [(L.toPtr jlArrType, SIdent struct_ptr), L.idx 0, L.idx 0]
     tellI $ L.store L.i32 arr_size_src L.i32ptr struct_len_ptr
 
     -- Zero-allocate the correct number of cells for the array-part
@@ -434,16 +439,16 @@ convExpr e = case e of
       -- Cast the pointer to the cells into a pointer to a variable length
       -- LLVM array.
     arr_ptr <- nextVar
-    tellI $ L.bitcast arr_ptr L.i32ptr (SIdent cells_ptr) (L.toPtr L.arrType)
+    tellI $ L.bitcast arr_ptr L.i32ptr (SIdent cells_ptr) (L.toPtr arrType)
       -- Store the pointer to the array at the array-part of the structure.
     struct_arr_ptr <- nextVar
-    tellI $ (struct_arr_ptr `L.getelementptr` L.jlArrType)
-              [(L.toPtr L.jlArrType, SIdent arr_ptr), L.idx 0, L.idx 1]
+    tellI $ (struct_arr_ptr `L.getelementptr` jlArrType)
+              [(L.toPtr jlArrType, SIdent arr_ptr), L.idx 0, L.idx 1]
     tellI $ L.store
-            (L.toPtr L.arrType) (SIdent arr_ptr)
-            (L.toPtr (L.toPtr L.arrType)) struct_arr_ptr
+            (L.toPtr arrType) (SIdent arr_ptr)
+            (L.toPtr (L.toPtr arrType)) struct_arr_ptr
 
-    bindRetId struct_ptr (L.toPtr L.jlArrType)
+    bindRetId struct_ptr (L.toPtr jlArrType)
 
   -- Currently only supports one-dimensional arrays; we make the assumption
   -- that we never need to get the length of anything inside another array.
@@ -643,9 +648,9 @@ transType = \case
   J.Bool   -> L.bool
   J.Void   -> TVoid
   J.Str    -> error "String type needs special care"
-  -- Set length to 0 for now, since we do not get the length
-  -- from the JL type alone.
-  J.Arr t  -> TArray 0 (transType t)
+  -- When generating code, we represent JL arrays as a 2-struct of an
+  -- i32 value and a pointer to an LLVM array of variable (0) length.
+  J.Arr t  -> TStruct [L.i32, L.toPtr (TArray 0 (transType t))]
 
 --
 -- * State-related helper functions.
@@ -732,13 +737,12 @@ labelBase  = "label"
 -- * Array-related helper functions
 --
 
-i32size :: Convert Source
-i32size = do
+sizeOf :: Type -> Convert Source
+sizeOf t = do
   [v, size_t] <- replicateM 2 nextVar
-  let idx n = (L.i32, L.srcI32 n)
-  tellI $ (v `L.getelementptr` L.i32)
-            [(L.toPtr L.i32, L.srcNull), idx 1]
-  tellI $ (size_t `L.ptrtoint` L.toPtr L.i32) (SIdent v) L.i32
+  tellI $ (v `L.getelementptr` t)
+            [(L.toPtr t, L.srcNull), L.idx 1]
+  tellI $ (size_t `L.ptrtoint` L.toPtr t) (SIdent v) L.i32
   retId size_t
 
 {- | Return a variable with the pointer to an index in some array,

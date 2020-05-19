@@ -64,14 +64,14 @@ idx :: Int -> (Type, Source)
 idx n = (i32, srcI32 n)
 
 -- | Array of variable (0) length. "Standard".
-arrType :: Type
-arrType = TArray 0 i32
+arrType :: Type -> Type
+arrType = TArray 0
 
 {- | Representation of a JL array; represented as a 2-struct containing the
 length of the array and a pointer to the actual array ("with zero length").
 -}
-jlArrType :: Type
-jlArrType = TStruct [i32, toPtr arrType]
+jlArrType :: Type -> Type
+jlArrType t = TStruct [i32, toPtr (arrType t)]
 
 --
 -- * Source shorthands
