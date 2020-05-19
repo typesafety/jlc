@@ -452,9 +452,24 @@ convExpr e = case e of
 
   -- Currently only supports one-dimensional arrays; we make the assumption
   -- that we never need to get the length of anything inside another array.
-  J.ELength (J.IdVar jIdent)-> do
-    TArray arrLen _ <- typeOfId $ transId Local jIdent
-    return $ L.srcI32 arrLen
+  J.ELength (J.IdVar jIdent) -> do
+    let lIdent = transId Local jIdent
+    jlArrPtrType@(TPointer jlArrType) <- typeOfId jIdent
+
+    -- Get pointer to array representation.
+    jlArrPtr <- nextVar
+    tellI $ (jlArrPtr `L.load` jlArrPtrType) (L.toPtr jlArrPtrType) lIdent
+
+    -- Get pointer to array length.
+    lenPtr <- nextVar
+    tellI $ (lenPtr `L.getelementptr` jlArrType)
+              [(jlArrPtrType, jlArrPtr), L.idx 0, L.idx 0]
+
+    -- Get array length value.
+    lenVal <- nextVar
+    tellI $ (lenVal `L.load` L.i32) L.i32ptr lenPtr
+
+    bindRetId lenVal L.i32
 
   -- Currently does not support multi-dimensional arrays.
   J.EVar jArrVar@J.ArrVar{} -> do
