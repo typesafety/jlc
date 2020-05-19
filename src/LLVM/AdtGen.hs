@@ -326,11 +326,12 @@ convStmt s = case s of
     bindType lId (L.toPtr lType)
     tellI $ lId `L.alloca` lType
 
+  -- For assigning to a certain index in an array.
   -- Currently does not support multi-dimensional arrays.
   J.Ass jArrVar@J.ArrVar{} jExpr -> do
-    (ptrId, TArray _ contentType) <- indexing jArrVar
+    (idxPtr, contentType) <- indexing jArrVar
     srcId <- convExpr jExpr
-    tellI $ L.store contentType srcId (L.toPtr contentType) ptrId
+    tellI $ L.store contentType srcId (L.toPtr contentType) idxPtr
 
   J.Ass (J.IdVar jId) jExpr -> do
     let storeId = transId Local jId
@@ -473,6 +474,7 @@ convExpr e = case e of
     bindRetId lenVal L.i32
 
   -- Currently does not support multi-dimensional arrays.
+  -- (Can't get the array content type from nested arrays)
   J.EVar jArrVar@(J.ArrVar jId jArrIdxs) -> do
     (idxPtr, contentType) <- indexing jArrVar
 
