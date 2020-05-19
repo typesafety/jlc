@@ -409,7 +409,7 @@ convExpr e = case e of
   -- We represent JL arrays as a LLVM 2-field struct as such:
   -- {i32, [n x i32]*}
   -- This allows us to keep the array length as well (important!)
-  J.ENewArr (J.Arr jType) jExpr -> do
+  J.ENewArr jType jExpr -> do
     -- Get the type of the contents of the array.
     let t = transType jType
     let arrType   = L.arrType t
@@ -593,6 +593,8 @@ convExpr e = case e of
   -- Forgot that we annotated expressions during type checking...
   -- TODO: rewrite code to make use of type annotation.
   J.AnnExp jExpr jType -> convExpr jExpr
+
+  e -> error $ "convExpr: unexpected expression: " ++ show e
 
   where
     -- For lazy AND/OR
