@@ -106,7 +106,8 @@ dsgStmt = \case
 
     let counterDecl = Decl Int [Init counterId (ELitInt 0)]
     let exprIdDecl  = Decl (Arr typ) [Init arrExprId expr]
-    let condExpr    = ERel (EVar (IdVar ident)) LTH (ELength (IdVar arrExprId))
+    let condExpr    =
+          ERel (EVar (IdVar counterId)) LTH (ELength (IdVar arrExprId))
     let incr        = Incr (IdVar counterId)
     let bindToId    =
           Decl typ
