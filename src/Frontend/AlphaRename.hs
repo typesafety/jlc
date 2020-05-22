@@ -15,7 +15,7 @@ module Frontend.AlphaRename
        ) where
 
 import Control.Applicative ((<|>))
-import Data.Bifunctor (first, second, bimap)
+import Data.Bifunctor (first, second)
 import Data.Maybe (fromMaybe)
 
 import Javalette.Abs
@@ -56,14 +56,14 @@ rename (Program defs) =
   Program <$> mapM (ST.withState (const newEnv) . renameDef) defs
 
 renameDef :: TopDef -> Rename TopDef
-renameDef (FnDef typ id args blk) = do
+renameDef (FnDef typ ident args blk) = do
   aArgs <- mapM renameArg args
   aBlk <- renameBlk blk
-  return $ FnDef typ id aArgs aBlk
+  return $ FnDef typ ident aArgs aBlk
 
   where
     renameArg :: Arg -> Rename Arg
-    renameArg (Argument typ id) = Argument typ <$> newBindStepAlpha id
+    renameArg (Argument t i) = Argument t <$> newBindStepAlpha i
 
 renameBlk :: Blk -> Rename Blk
 renameBlk (Block stmts) = Block <$> mapM renameStmt stmts
@@ -79,13 +79,13 @@ renameStmt = \case
   Decl typ items -> Decl typ <$> mapM renameItem items
     where
       renameItem :: Item -> Rename Item
-      renameItem (NoInit id) = NoInit <$> newBindStepAlpha id
-      renameItem (Init id expr) = do
+      renameItem (NoInit ident) = NoInit <$> newBindStepAlpha ident
+      renameItem (Init ident expr) = do
         -- We rename the expression FIRST to properly handle cases like
         -- int x = x + 1
         -- where x was previously bound.
         aExpr <- renameExpr expr
-        aVar <- newBindStepAlpha id
+        aVar <- newBindStepAlpha ident
         return $ Init aVar aExpr
 
   Ass var expr -> do
@@ -101,28 +101,18 @@ renameStmt = \case
 
   Ret expr -> Ret <$> renameExpr expr
 
-  If expr stmt -> do
-    -- TODO: Check if it's possible to replace with If <$> aExpr <*> aStmt
-    aExpr <- renameExpr expr
-    aStmt <- renameStmt stmt
-    return $ If aExpr aStmt
+  If expr stmt -> If <$> renameExpr expr <*> renameStmt stmt
 
-  IfElse expr s1 s2 -> do
-    aExpr <- renameExpr expr
-    aS1 <- renameStmt s1
-    aS2 <- renameStmt s2
-    return $ IfElse aExpr aS1 aS2
+  IfElse expr s1 s2 ->
+    IfElse <$> renameExpr expr <*> renameStmt s1 <*> renameStmt s2
 
-  While expr stmt -> do
-    aExpr <- renameExpr expr
-    aStmt <- renameStmt stmt
-    return $ While aExpr aStmt
+  While expr stmt -> While <$> renameExpr expr <*> renameStmt stmt
 
-  ForEach typ ident expr stmt -> do
-    aExpr <- renameExpr expr
-    newIdent <- newBindStepAlpha ident
-    aStmt <- renameStmt stmt
-    return $ ForEach typ newIdent aExpr aStmt
+  ForEach typ ident expr stmt ->
+    ForEach typ
+      <$> newBindStepAlpha ident
+      <*> renameExpr expr
+      <*> renameStmt stmt
 
   SExp expr -> SExp <$> renameExpr expr
 
@@ -149,18 +139,18 @@ renameVar (ArrVar ident arrIdxs) = do
 
 renameExpr :: Expr -> Rename Expr
 renameExpr = \case
-  ENewArr t expr  -> ENewArr t <$> renameExpr expr
-  ELength var     -> ELength <$> renameVar var
-  EVar var        -> EVar    <$> renameVar var
-  EApp id exprs   -> EApp id <$> mapM renameExpr exprs
-  Neg  expr       -> Neg <$> renameExpr expr
-  Not  expr       -> Not <$> renameExpr expr
-  EMul e1 op e2   -> binOpRename (flip EMul op) e1 e2
-  EAdd e1 op e2   -> binOpRename (flip EAdd op) e1 e2
-  ERel e1 op e2   -> binOpRename (flip ERel op) e1 e2
-  EAnd e1 e2      -> binOpRename EAnd e1 e2
-  EOr  e1 e2      -> binOpRename EOr e1 e2
-  AnnExp expr typ -> flip AnnExp typ <$> renameExpr expr
+  ENewArr t expr   -> ENewArr t <$> renameExpr expr
+  ELength var      -> ELength <$> renameVar var
+  EVar var         -> EVar <$> renameVar var
+  EApp ident exprs -> EApp ident <$> mapM renameExpr exprs
+  Neg  expr        -> Neg <$> renameExpr expr
+  Not  expr        -> Not <$> renameExpr expr
+  EMul e1 op e2    -> binOpRename (flip EMul op) e1 e2
+  EAdd e1 op e2    -> binOpRename (flip EAdd op) e1 e2
+  ERel e1 op e2    -> binOpRename (flip ERel op) e1 e2
+  EAnd e1 e2       -> binOpRename EAnd e1 e2
+  EOr  e1 e2       -> binOpRename EOr e1 e2
+  AnnExp expr typ  -> flip AnnExp typ <$> renameExpr expr
 
   -- Catch-all for cases which do not need renaming.
   expr -> return expr
@@ -168,11 +158,6 @@ renameExpr = \case
   where
     binOpRename :: (Expr -> Expr -> Expr) -> Expr -> Expr -> Rename Expr
     binOpRename constr e1 e2 = constr <$> renameExpr e1 <*> renameExpr e2
-
-    annExpErr :: String
-    annExpErr =
-      "AlphaRename.renameExpr: encountered AnnExp; alpha-renaming should be"
-      ++ " performed before type checking (and type annotation)"
 
 --
 -- * Helper functions for manipulating the environment.
@@ -196,10 +181,6 @@ environment is empty.
 popCxt :: Rename ()
 popCxt = fetchCxts >> ST.modify (first tail)
 
--- | Sets the variable counter to the given value.
-setCounter :: Int -> Rename ()
-setCounter n = ST.modify $ second (const n)
-
 -- | Increment the variable counter by one.
 incrCounter :: Rename ()
 incrCounter = ST.modify $ second (+ 1)
@@ -216,30 +197,7 @@ updateCxt f = fetchCxts >> ST.modify (first $ \ (x : xs) -> f x : xs)
 
 -- | Create a new mapping between an original variable and its alpha-renaming.
 bindVar :: Original -> Ident -> Rename ()
-bindVar orig id = updateCxt $ M.insert orig id
-
-{- | Given an original @id@ and a alpha-variable @v@, look up
-the topmost binding for @id@ in the context stack and replace its
-binding to @v@.
-
-@
-Context stack: [fromList [("x", "v1"), ("y", "v2")], fromList [("x", "v0")]]
->>> rebind "x" "v3"
-
-New stack: [fromList [("x", "v3"), ("y", "v2")], fromList [("x", "v0")]]
-@
--}
-rebind :: Original -> Ident -> Rename ()
-rebind orig aVar =
-  ST.modify $ first $ applyWhen (M.member orig) (M.adjust (const aVar) orig)
-  where
-    -- Apply a function on the first element in the list that
-    -- satisfies the predicate.
-    applyWhen :: (a -> Bool) -> (a -> a) -> [a] -> [a]
-    applyWhen _ _ [] = []
-    applyWhen p f (x : xs)
-      | p x       = f x : xs
-      | otherwise = x : applyWhen p f xs
+bindVar orig ident = updateCxt $ M.insert orig ident
 
 {- | Look up the alpha-variable, given the original id.
 Crashes if the original id cannot be found.
@@ -248,7 +206,7 @@ lookupVar :: Stack.HasCallStack => Original -> Rename Ident
 lookupVar orig = fromMaybe (error errMsg) <$> ST.gets (find orig . fst)
   where
     find :: Original -> [Context] -> Maybe Ident
-    find orig = foldl (<|>) Nothing . map (M.lookup orig)
+    find o = foldl (<|>) Nothing . map (M.lookup o)
 
     errMsg :: Stack.HasCallStack => String
     errMsg = stackStr ++ "\nCould not find original id `" ++ showOrig orig
@@ -269,7 +227,7 @@ variable counter to the next free number. This both returns a value
 AND modifies the state.
 -}
 stepAlpha :: Rename Ident
-stepAlpha = nextAlpha >>= \ id -> incrCounter >> return id
+stepAlpha = nextAlpha >>= \ ident -> incrCounter >> return ident
 
 {- | Bind the given original id to the next available alpha-variable @v@,
 then increment the counter and return @v@.
@@ -279,19 +237,12 @@ This returns a value, modifies the context stack, and modifies the counter.
 newBindStepAlpha :: Ident -> Rename Ident
 newBindStepAlpha = bindStepAlpha bindVar
 
-{- | Like @bindStepAlpha@, but using @rebind@ instead of @bindVar@.
-In other words, keep the original @id@ on the stac, but replace its
-topmost binding to a new unique variable.
--}
-rebindStepAlpha :: Ident -> Rename Ident
-rebindStepAlpha = bindStepAlpha rebind
-
 -- Helper function for newBindStepAlpha and rebindStepAlpha, uses
 -- a given function to bind the @id@ parameter to an a-var.
-bindStepAlpha :: (Original -> Ident -> Rename a) -> Ident -> Rename Ident
-bindStepAlpha binderFun id = do
+bindStepAlpha :: (Original -> Ident -> Rename ()) -> Ident -> Rename Ident
+bindStepAlpha binderFun ident = do
   aVar <- stepAlpha
-  binderFun (Original id) aVar
+  binderFun (Original ident) aVar
   return aVar
 
 --
@@ -303,7 +254,3 @@ varBase = "v"
 
 stackStr :: Stack.HasCallStack => String
 stackStr = Stack.prettyCallStack Stack.callStack
-
-idFromVar :: Var -> Ident
-idFromVar (IdVar ident)    = ident
-idFromVar (ArrVar ident _) = ident
