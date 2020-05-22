@@ -1,7 +1,7 @@
-{- | Abstract data type for LLVM
--}
+-- | (Incomplete) abstract data type for LLVM.
 
 module LLVM.ADT where
+
 
 -- | ADT for an LLVM compilation unit (module).
 data LLVM = LLVM
@@ -9,15 +9,15 @@ data LLVM = LLVM
   , llvmVarDefs  :: [VarDef]   -- ^ Global variable definitions
   , llvmFunDefs  :: [FunDef]   -- ^ Local (to the module) function definitions
   , llvmFunDecls :: [FunDecl]  -- ^ External function declarations
--- External global variables are not implemented.
+  -- External global variables are not implemented.
   }
   deriving (Eq, Show)
 
 -- * Function definitions
 
 data FunDecl = FunDecl
-  Type   -- ^ Return type
-  Ident  -- ^ Function Name
+  Type    -- ^ Return type
+  Ident   -- ^ Function Name
   [Type]  -- ^ Parameters
   deriving (Eq, Show)
 
@@ -97,7 +97,7 @@ data ArithOp
   | Mul
   | Sdiv
   | Srem
-  -- For doubles
+  -- For floating point numbers
   | Fadd
   | Fsub
   | Fmul
