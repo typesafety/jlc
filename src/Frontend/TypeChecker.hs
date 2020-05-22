@@ -26,7 +26,7 @@ type TypeCheck a = R.ReaderT Signatures (ST.StateT Env (E.Except Error)) a
 
 runTypeCheck :: TypeCheck a -> Either Error a
 runTypeCheck t =
-  E.runExcept $ ST.evalStateT (R.runReaderT t emptySig) emptyEnv
+  E.runExcept $ ST.evalStateT (R.runReaderT t initSig) emptyEnv
 
 type Signatures = M.Map Ident ([Type], Type)
 
@@ -34,8 +34,8 @@ type Context = M.Map Ident Type
 
 type Env = [Context]
 
-emptySig :: Signatures
-emptySig = M.fromList
+initSig :: Signatures
+initSig = M.fromList
   [ (Ident "readInt",     ([],       Int))
   , (Ident "readDouble",  ([],       Double))
   , (Ident "printInt",    ([Int],    Void))
@@ -65,12 +65,12 @@ typeCheck = runTypeCheck . typeCheck'
 --
 
 checkDef :: TopDef -> TypeCheck TopDef
-checkDef (FnDef typ id args (Block stmts)) = do
+checkDef (FnDef typ ident args (Block stmts)) = do
   -- First, add the function return type as the only binding in
   -- the bottom context of the stack. This bottom context will contain
   -- only this binding and serves only to store the return type.
   pushCxt
-  bindType id typ
+  bindType ident typ
 
   -- Then, push another context onto the stack and bind the types
   -- of the function arguments.
@@ -81,7 +81,7 @@ checkDef (FnDef typ id args (Block stmts)) = do
   -- It is enough to check that return statements exists and are
   -- reachable; any type-incorrect returnts will be caught in the
   -- later call to `checkStmts`.
-  unless (typ == Void || reachableRet stmts) $ throw $ MissingReturnError id
+  unless (typ == Void || reachableRet stmts) $ throw $ MissingReturnError ident
 
   -- TypeCheck the statements in the function body, annotating expressions.
   annotated <- mapM checkStmt stmts
@@ -91,7 +91,7 @@ checkDef (FnDef typ id args (Block stmts)) = do
   popCxt
   popCxt
 
-  return $ FnDef typ id args (Block annotated)
+  return $ FnDef typ ident args (Block annotated)
 
 -- | Return @True@ if the given list of statements is guaranteed to
 -- reach a non-void return statement.
@@ -102,11 +102,11 @@ reachableRet (s : ss) = case s of
   BStmt (Block stmts)   -> reachableRet stmts  || reachableRet ss
   If ELitTrue stmt      -> reachableRet [stmt] || reachableRet ss
   While ELitTrue stmt   -> reachableRet [stmt] || reachableRet ss
-  IfElse exp s1 s2
-    | exp == ELitTrue  -> reachableRet [s1] || reachableRet ss
-    | exp == ELitFalse -> reachableRet [s2] || reachableRet ss
-    | otherwise        -> (reachableRet [s1] && reachableRet [s2])
-                          || reachableRet ss
+  IfElse expr s1 s2
+    | expr == ELitTrue  -> reachableRet [s1] || reachableRet ss
+    | expr == ELitFalse -> reachableRet [s2] || reachableRet ss
+    | otherwise         -> (reachableRet [s1] && reachableRet [s2])
+                            || reachableRet ss
 
   _ -> reachableRet ss
 
@@ -128,51 +128,51 @@ checkStmt = \case
     where
       checkItem :: Type -> Item -> TypeCheck Item
       checkItem expected item = case item of
-        NoInit id -> do
-          bindType id expected
+        NoInit ident -> do
+          bindType ident expected
           return item
-        Init id exp -> do
-          annExp <- annotateWithType expected exp
-          bindType id expected
-          return $ Init id annExp
+        Init ident expr -> do
+          annExpr <- annotateWithType expected expr
+          bindType ident expected
+          return $ Init ident annExpr
 
-  Ass var exp -> do
+  Ass var expr -> do
     varType <- lookupVar var
-    annExp <- annotateWithType varType exp
-    return $ Ass var annExp
+    annExpr <- annotateWithType varType expr
+    return $ Ass var annExpr
 
-  Incr id -> lookupVar id >>= \case
-    Int -> return $ Incr id
-    typ -> throw $ IncrTypeError id typ
+  Incr ident -> lookupVar ident >>= \case
+    Int -> return $ Incr ident
+    typ -> throw $ IncrTypeError ident typ
 
-  Decr id -> lookupVar id >>= \case
-    Int -> return $ Decr id
-    typ -> throw $ DecrTypeError id typ
+  Decr ident -> lookupVar ident >>= \case
+    Int -> return $ Decr ident
+    typ -> throw $ DecrTypeError ident typ
 
-  Ret exp -> do
-    (annExp, typ) <- annotate2 exp
+  Ret expr -> do
+    (annExpr, typ) <- annotate2 expr
     checkRet typ
-    return $ Ret annExp
+    return $ Ret annExpr
 
   VRet -> do
     checkRet Void
     return VRet
 
-  If exp stmt -> do
-    annExp <- annotateWithType Bool exp
+  If expr stmt -> do
+    annExpr <- annotateWithType Bool expr
     checkedStmt <- checkStmt stmt
-    return $ If annExp checkedStmt
+    return $ If annExpr checkedStmt
 
-  IfElse exp s1 s2 -> do
-    annExp <- annotateWithType Bool exp
+  IfElse expr s1 s2 -> do
+    annExpr <- annotateWithType Bool expr
     checkedS1 <- checkStmt s1
     checkedS2 <- checkStmt s2
-    return $ IfElse annExp checkedS1 checkedS2
+    return $ IfElse annExpr checkedS1 checkedS2
 
-  While exp stmt -> do
-    annExp <- annotateWithType Bool exp
+  While expr stmt -> do
+    annExpr <- annotateWithType Bool expr
     checkedStmt <- checkStmt stmt
-    return $ While annExp checkedStmt
+    return $ While annExpr checkedStmt
 
   ForEach typ ident expr stmt -> do
     aExpr <- annotateWithType (Arr typ) expr
@@ -181,21 +181,21 @@ checkStmt = \case
     unbindType ident
     return $ ForEach typ ident aExpr aStmt
 
-  SExp exp -> do
-    (annExp, eType) <- annotate2 exp
+  SExp expr -> do
+    (annExpr, eType) <- annotate2 expr
     if eType `tEq` Void
-      then return $ SExp annExp
-      else throw $ NonVoidSExpError exp eType
+      then return $ SExp annExpr
+      else throw $ NonVoidSExpError expr eType
 
   where
     -- Given a type, assert that the return type of the current
     -- function has the same type, or throw an error if not.
     checkRet :: Type -> TypeCheck ()
     checkRet t = do
-      (id, retType) <- getRet
+      (ident, retType) <- getRet
       if t `tEq` retType
         then return ()
-        else throw $ ReturnError id retType t
+        else throw $ ReturnError ident retType t
 
 -- | Check for the existence of main() and ensure that it has the
 -- correct arguments and return type.
@@ -215,33 +215,33 @@ checkMain = R.reader (M.lookup (Ident "main")) >>= \case
 -- | Run @annotate@ but throw an error if the inferred type does not
 -- match the given type.
 annotateWithType :: Stack.HasCallStack => Type -> Expr -> TypeCheck Expr
-annotateWithType expected exp = annotate exp >>= \case
-  annExp@(AnnExp e t)
-    | expected `tEq` t -> return annExp
-    | otherwise        -> throw $ ExpError exp [expected] t
+annotateWithType expected expr = annotate expr >>= \case
+  annExpr@(AnnExp _ t)
+    | expected `tEq` t -> return annExpr
+    | otherwise        -> throw $ ExpError expr [expected] t
   _ -> error "annotateWithType: `annotate` did not return an AnnExp expression"
 
 -- | Like @annotate@, but also return the type of the expression.
 annotate2 :: Stack.HasCallStack => Expr -> TypeCheck (Expr, Type)
-annotate2 exp = annotate exp >>= \case
+annotate2 expr = annotate expr >>= \case
   AnnExp e t -> return (e, t)
   _ -> error "annotate2: `annotate` did not return an AnnExp expression"
 
 -- | Given an expression, infer its type and return its annotated version.
 -- This also annotates any sub-expressions.
 annotate :: Expr -> TypeCheck Expr
-annotate topExp = do
-  (exp', eType) <- ann
-  return $ AnnExp exp' eType
+annotate topExpr = do
+  (expr', eType) <- ann
+  return $ AnnExp expr' eType
 
   where
     ann :: Stack.HasCallStack => TypeCheck (Expr, Type)
-    ann = case topExp of
-      ELitInt _    -> return (topExp, Int)
-      ELitDouble _ -> return (topExp, Double)
-      ELitTrue     -> return (topExp, Bool)
-      ELitFalse    -> return (topExp, Bool)
-      EString _    -> return (topExp, Str)
+    ann = case topExpr of
+      ELitInt _    -> return (topExpr, Int)
+      ELitDouble _ -> return (topExpr, Double)
+      ELitTrue     -> return (topExpr, Bool)
+      ELitFalse    -> return (topExpr, Bool)
+      EString _    -> return (topExpr, Str)
 
       ENewArr t expr -> do
         annExpr <- annotateWithType Int expr
@@ -249,38 +249,38 @@ annotate topExp = do
         return (ENewArr t annExpr, eType)
 
       ELength var -> lookupVar var >>= \case
-        Arr t -> return (topExp, Int)
-        t     -> throw $ NonArrayError topExp t
+        Arr _ -> return (topExpr, Int)
+        t     -> throw $ NonArrayError topExpr t
 
-      EApp id exps -> R.reader (M.lookup id) >>= \case
-        Nothing -> throw $ SymbolError id
+      EApp ident exprs -> R.reader (M.lookup ident) >>= \case
+        Nothing -> throw $ SymbolError ident
         Just (argTypes, retType) -> do
           -- Throw an error if number of arguments do not match the
           -- number of parameters to the function.
-          when (length argTypes /= length exps)
-            $ throw $ NumArgsError id (length argTypes) (length exps)
+          when (length argTypes /= length exprs)
+            $ throw $ NumArgsError ident (length argTypes) (length exprs)
 
-          annExps <- zipWithM annotateWithType argTypes exps
+          annExprs <- zipWithM annotateWithType argTypes exprs
 
-          return (EApp id annExps, Fun retType argTypes)
+          return (EApp ident annExprs, Fun retType argTypes)
 
       -- Does not support multi-dimensional arrays.
       EVar var -> do
         typ <- lookupVar var
-        return (topExp, typ)
+        return (topExpr, typ)
 
-      Neg exp -> do
-        (annExp, eType) <- annotate2 exp
+      Neg expr -> do
+        (annExpr, eType) <- annotate2 expr
         let allowed = [Int, Double]
         if eType `okType` allowed
-          then return (Neg annExp, eType)
-          else throw $ ExpError exp allowed eType
+          then return (Neg annExpr, eType)
+          else throw $ ExpError expr allowed eType
 
-      Not exp -> do
-        (annExp, eType) <- annotate2 exp
+      Not expr -> do
+        (annExpr, eType) <- annotate2 expr
         if eType `okType` [Bool]
-          then return (Not annExp, eType)
-          else throw $ ExpError exp [Bool] eType
+          then return (Not annExpr, eType)
+          else throw $ ExpError expr [Bool] eType
 
       EMul e1 op e2 -> do
         (annE1, annE2, eType) <- annBinOp allowedOperands Nothing e1 e2
@@ -290,6 +290,7 @@ annotate topExp = do
           allowedOperands
             | op `elem` [Times, Div] = [Int, Double]
             | op == Mod              = [Int]
+            | otherwise = error $ "EMul: unexpected operand" ++ show op
 
       EAdd e1 op e2 -> do
         (annE1, annE2, eType) <- annBinOp [Int, Double] Nothing e1 e2
@@ -303,6 +304,7 @@ annotate topExp = do
           allowedOperands
             | op `elem` [EQU, NE]          = [Int, Double, Bool]
             | op `elem` [LTH, LE, GTH, GE] = [Int, Double]
+            | otherwise = error $ "ERel: unexpected operand" ++ show op
 
       EAnd e1 e2 -> do
         (annE1, annE2, eType) <- annBinOp [Bool] (Just Bool) e1 e2
@@ -341,17 +343,16 @@ bindArgs args = ST.get >>= \case
   c : cs -> do
     let c' = M.union c . M.fromList . map argToTuple $ args
     ST.put $ c' : cs
-
   where
     argToTuple :: Arg -> (Ident, Type)
-    argToTuple (Argument typ id) = (id, typ)
+    argToTuple (Argument typ ident) = (ident, typ)
 
 bindType :: Stack.HasCallStack => Ident -> Type -> TypeCheck ()
-bindType id typ = ST.get >>= \case
+bindType ident typ = ST.get >>= \case
   []    -> error "bindType: empty context stack"
-  c : _ -> case M.lookup id c of
-    Just _  -> throw $ DuplicateDeclError id
-    Nothing -> updateCxt (M.insert id typ)
+  c : _ -> case M.lookup ident c of
+    Just _  -> throw $ DuplicateDeclError ident
+    Nothing -> updateCxt (M.insert ident typ)
 
 unbindType :: Stack.HasCallStack => Ident -> TypeCheck ()
 unbindType ident = updateCxt $ \ cxt ->
@@ -365,7 +366,7 @@ updateCxt f = ST.get >>= \case
   c : cs -> ST.put $ f c : cs
 
 pushCxt :: TypeCheck ()
-pushCxt = ST.modify (M.empty :)
+pushCxt = ST.modify (emptyCxt :)
 
 popCxt :: Stack.HasCallStack => TypeCheck ()
 popCxt = ST.get >>= \case
@@ -395,19 +396,23 @@ getRet = ST.get >>= \ env -> case getRet' env of
 -- If so, return the type of its topmost ("latest") occurrence, or throw an
 -- error otherwise.
 lookupVar :: Var -> TypeCheck Type
+
 lookupVar (ArrVar ident idxs) =
   typeAtDepth (length idxs) <$> lookupVar (IdVar ident)
   where
-    typeAtDepth :: Int -> Type -> Type
+    typeAtDepth :: Stack.HasCallStack => Int -> Type -> Type
     typeAtDepth 0 t       = t
     typeAtDepth n (Arr t) = typeAtDepth (n - 1) t
-lookupVar (IdVar id)    = ST.get >>= \ cxts -> case lookupVar' id cxts of
+    typeAtDepth _ _ = error $ "typeAtDepth: unhandled mismatch in indexing of"
+                            ++ "array variable: " ++ show (ArrVar ident idxs)
+
+lookupVar (IdVar ident) = ST.get >>= \ cxts -> case lookupVar' ident cxts of
   Just typ -> return typ
-  Nothing  -> throw $ SymbolError id
+  Nothing  -> throw $ SymbolError ident
   where
     lookupVar' :: Ident -> Env -> Maybe Type
     lookupVar' _ []        = Nothing
-    lookupVar' id (c : cs) = M.lookup id c <|> lookupVar' id cs
+    lookupVar' i (c : cs) = M.lookup i c <|> lookupVar' i cs
 
 -- | Get the top level function signatures from a list of
 -- top level definitions.
@@ -430,20 +435,21 @@ getSigs topDefs = do
       | otherwise   = dupes xs
 
     getSigInfo :: TopDef -> TypeCheck (Ident, ([Type], Type))
-    getSigInfo (FnDef retType id args _) =
-      getArgTypes args >>= \ argTypes -> return (id, (argTypes, retType))
+    getSigInfo (FnDef retType ident args _) =
+      getArgTypes args >>= \ argTypes -> return (ident, (argTypes, retType))
 
       where
         -- Return the argument types from a list of arguments, fail if
         -- there are issues with any arguments.
         getArgTypes :: [Arg] -> TypeCheck [Type]
-        getArgTypes args = do
-          let getArg (Argument t i) = (t, i)
-              (types, ids) = unzip . map getArg $ args
+        getArgTypes as = do
+          let getArg :: Arg -> (Type, Ident)
+              getArg (Argument t i) = (t, i)
+          let (types, ids) = unzip . map getArg $ as
 
           -- Check for duplicate argument names or void argument types.
-          unless (null . dupes $ ids) $ throw $ DuplicateParamError id
-          when (Void `elem` types) $ throw $ VoidParamError id
+          unless (null . dupes $ ids) $ throw $ DuplicateParamError ident
+          when   (Void `elem` types)  $ throw $ VoidParamError ident
 
           return types
 
