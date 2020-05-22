@@ -20,6 +20,8 @@ module LLVM.AdtGen
        ( convert
        ) where
 
+import Debug.Trace
+
 import Control.Monad (replicateM, void)
 import Data.Bifunctor (first)
 import Lens.Micro.Platform
@@ -786,10 +788,14 @@ indexing (J.ArrVar jIdent jArrIdxs) = do
   idxsAsArgs <- zip (repeat L.i32)
                 <$> mapM (\ (J.ArrIndex e) -> convExpr e) jArrIdxs
 
+-------- TODOOOOO: Why is storedAt not of type {i32, []*}**? should it be?
+
+
   -- jlArrType is our representation of a JL type; a structure.
   storedAt <- typeOfId $ transId Local jIdent
-  let TPointer jlArrPtrType = storedAt
-  let TPointer jlArrType    = jlArrPtrType
+  let TPointer jlArrPtrType = traceShowId storedAt
+  -- let TPointer jlArrType    = traceShowId jlArrPtrType
+  let jlArrType = jlArrPtrType
   -- t is the type of the contents of the array (and also the
   -- type to be returned).
   let t = arrContentType jlArrType

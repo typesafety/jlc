@@ -70,7 +70,7 @@ instance EmitLLVM Lit where
     LInt n      -> show n
     LDouble d   -> show d
     LString str -> mconcat ["c\"", str, "\\00\""]
-    -- LNull  Unused?
+    LNull       -> "null"
 
 instance EmitLLVM Ident where
   emit (Ident scope name) = emit scope ++ name
@@ -89,12 +89,12 @@ instance EmitLLVM Type where
     TArray n typ -> mconcat ["[", show n, " x ", emit typ, "]"]
     TVoid        -> "void"
     TDouble      -> "double"
+    TStruct ts   -> "{" ++ intercalate ", " (map emit ts) ++ "}"
     -- Unused.
     -- TODO: Remove once confirmed that they are not (currently) used.
     -- TName Ident
     -- TLabel Label
     -- TFun Type [Type]
-    -- TStruct [Type]
     -- TFloat
     -- TNull
 
@@ -149,6 +149,10 @@ instance EmitLLVM OtherOp where
       [ "call ", emit retType, " ", emit id, "(", commaSep args, ")" ]
     Sitofp fromT src toT -> unwords
       [ "sitofp", emit fromT, emit src, "to", emit toT ]
+    Ptrtoint fromT src toT -> unwords
+      [ "ptrtoint", emit fromT, emit src, "to", emit toT ]
+    Bitcast fromT src toT -> unwords
+      [ "bitcast", emit fromT, emit src, "to", emit toT ]
     Zext fromT src toT -> unwords
       [ "zext", emit fromT, emit src, "to", emit toT ]
 
