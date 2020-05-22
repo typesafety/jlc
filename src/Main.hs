@@ -18,9 +18,9 @@ import qualified Frontend.Errors as Errors
 import qualified Frontend.OptimizeAST as OptimizeAST
 import qualified Frontend.PrettyPrinter as PrettyPrinter
 import qualified Frontend.TypeChecker as TypeChecker
-import qualified LLVM.ADT
-import qualified LLVM.AdtGen
-import qualified LLVM.Emit
+import qualified LLVM.ADT (LLVM)
+import qualified LLVM.AdtGen (convert)
+import qualified LLVM.Emit (emit)
 
 run :: String -> Either Errors.Error LLVM.ADT.LLVM
 run code = do
