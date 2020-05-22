@@ -7,6 +7,11 @@ useful in future compilation steps.
 
 Desugaring should be run _after_ alpha-renaming. Some procedures
 will assume that all variables are unique.
+
+TODO: Desugaring into a new data type that explicitly does not include
+      sugar-only expressions and statements allows for better use of
+      the type system. The following phases will need to change their
+      implmentations in that case.
 -}
 
 module Frontend.Desugar
@@ -40,17 +45,17 @@ desugar = runDesugar . desugar'
     desugar' (Program topDefs) = Program <$> traverse dsgTopDef topDefs
 
 dsgTopDef :: TopDef -> Desugar TopDef
-dsgTopDef (FnDef typ id args blk) = do
+dsgTopDef (FnDef typ ident args blk) = do
   desugaredBlk <- case typ of
     -- If the return type is void, we insert a return statement as
-    -- the last statement. Redundant return statements are optimized
-    -- away and helps during code generation.
+    -- the last statement. This makes code generation easier, and redundant
+    -- return statements will be optimized away.
     Void -> dsgBlk blk >>= \ (Block ss) -> return $ Block (ss ++ [VRet])
     _    -> dsgBlk blk
-  return $ FnDef typ id args desugaredBlk
+  return $ FnDef typ ident args desugaredBlk
 
 dsgBlk :: Blk -> Desugar Blk
-dsgBlk (Block stmts) = Block <$> dsgStmts stmts
+dsgBlk (Block statements) = Block <$> dsgStmts statements
   where
     dsgStmts :: [Stmt] -> Desugar [Stmt]
     dsgStmts []       = pure []
@@ -58,35 +63,32 @@ dsgBlk (Block stmts) = Block <$> dsgStmts stmts
       Left stmts -> (stmts ++) <$> dsgStmts ss
       Right stmt -> (stmt :) <$> dsgStmts ss
 
-dsgItem :: Item -> Desugar Item
-dsgItem (Init id expr) = Init id <$> dsgExpr expr
-dsgItem item           = pure item
-
 -- | Desugar a statement. Because some desugaring procedures will require
 -- additional statements, @dsgStmt@ can also return a list of statements.
 dsgStmt :: Stmt -> Desugar (Either [Stmt] Stmt)
 dsgStmt = \case
   BStmt blk -> Right . BStmt <$> dsgBlk blk
 
-  -- Place all declarations on separate lines. More verbose but simpler.
-  -- (But now we get singleton item lists, which looks a bit ugly,
-  -- maybe that can be addressed somehow?)
-  Decl typ items -> Left . concat <$> mapM (dsgDecl typ) items
+  -- Place all declarations on separate lines.
+  Decl typ items -> Left . concat <$> mapM (dsgItem typ) items
     where
       -- Convert declarations into separate declarations and
       -- initializations when applicable.
-      dsgDecl :: Type -> Item -> Desugar [Stmt]
-      dsgDecl t i = case i of
-        NoInit id    -> pure [Decl t [i]]
-        Init id expr -> do
+      dsgItem :: Type -> Item -> Desugar [Stmt]
+      dsgItem t i = case i of
+        NoInit _        -> pure [Decl t [i]]
+        Init ident expr -> do
           dExpr <- dsgExpr expr
-          return [Decl t [NoInit id], Ass (IdVar id) dExpr]
+          return
+            [ Decl t [NoInit ident]
+            , Ass (IdVar ident) dExpr
+            ]
 
-  Ass id expr -> Right . Ass id <$> dsgExpr expr
+  Ass ident expr -> Right . Ass ident <$> dsgExpr expr
 
   -- Rewrite @x++; x--;@ to @x = x + 1; x = x - 1;@.
-  Incr id -> pure . Right $ Ass id $ EAdd (EVar id) Plus (ELitInt 1)
-  Decr id -> pure . Right $ Ass id $ EAdd (EVar id) Minus (ELitInt 1)
+  Incr ident -> pure . Right $ Ass ident $ EAdd (EVar ident) Plus (ELitInt 1)
+  Decr ident -> pure . Right $ Ass ident $ EAdd (EVar ident) Minus (ELitInt 1)
 
   Ret expr -> Right . Ret <$> dsgExpr expr
 
