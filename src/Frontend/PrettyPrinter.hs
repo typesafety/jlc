@@ -17,7 +17,7 @@ import Javalette.Abs
 import qualified Control.Monad.Reader as R
 
 
--- | Prettyprint something, using the given indentation.
+-- | Prettyprint something, using the given indentation level.
 prettyPrint :: Pretty a => Int -> a -> String
 prettyPrint n = flip runPrettyP n . pPrint
 
@@ -39,9 +39,9 @@ instance Pretty Prog where
   pPrint (Program topDefs) = intercalate "\n" <$> mapM pPrint topDefs
 
 instance Pretty TopDef where
-  pPrint (FnDef typ id args (Block stmts)) = do
+  pPrint (FnDef typ ident args (Block stmts)) = do
     pTyp <- pPrint typ
-    pId <- pPrint id
+    pId <- pPrint ident
     pArgs <- mapM pPrint args
 
     indent <- getIndent
@@ -65,38 +65,38 @@ instance Pretty Blk where
       <$> mapM pPrint stmts
 
 instance Pretty Arg where
-  pPrint (Argument typ id) =
-    (((++) <$> pPrint typ <*> pure " ") <&> (++)) <*> pPrint id
+  pPrint (Argument typ ident) =
+    (((++) <$> pPrint typ <*> pure " ") <&> (++)) <*> pPrint ident
 
 instance Pretty Ident where
   pPrint (Ident s) = pure s
 
 instance Pretty Type where
-  pPrint (Fun t ts) = do
-    pT <- pPrint t
-    pTs <- intercalate "," <$> traverse pPrint ts
-    pure $ "FUNCTION(" ++ pTs ++ ":" ++ pT
-  pPrint (Arr t) = pPrint t <&> (++ "[]")
-  pPrint typ = pure $ case typ of
-    Int    -> "int"
-    Double -> "double"
-    Bool   -> "boolean"
-    Void   -> "void"
-
-    Str    -> "STRING"
+  pPrint typ = case typ of
+    Int      -> pure "int"
+    Double   -> pure "double"
+    Bool     -> pure "boolean"
+    Void     -> pure "void"
+    Arr t    -> pPrint t <&> (++ "[]")
+    Str      -> pure "STRING"
+    Fun t ts -> do
+      pT <- pPrint t
+      pTs <- intercalate "," <$> traverse pPrint ts
+      pure $ "FUNCTION(" ++ pTs ++ ":" ++ pT
 
 instance Pretty Var where
-  pPrint (IdVar id)          = pPrint id
-  pPrint (ArrVar id arrIdxs) = do
+  pPrint (IdVar ident)          = pPrint ident
+  pPrint (ArrVar ident arrIdxs) = do
     xs <- concat <$> traverse pPrint arrIdxs
-    pPrint id <&> (++ xs)
+    pPrint ident <&> (++ xs)
 
 instance Pretty ArrIndex where
   pPrint (ArrIndex e) = ("[" ++) <$> pPrint e <&> (++ "]")
 
 instance Pretty Item where
-  pPrint (NoInit id)    = pPrint id
-  pPrint (Init id expr) = (pPrint id <&> (++ " = ") <&> (++)) <*> pPrint expr
+  pPrint (NoInit ident)    = pPrint ident
+  pPrint (Init ident expr) =
+    (pPrint ident <&> (++ " = ") <&> (++)) <*> pPrint expr
 
 instance Pretty Stmt where
   pPrint = \case
@@ -109,12 +109,12 @@ instance Pretty Stmt where
       pItems <- intercalate ", " <$> mapM pPrint items
       pure $ mconcat [pTyp, " ", pItems, ";"]
 
-    Ass id expr ->
-      (pPrint id <&> (++ " = ") <&> (++)) <*> pPrint expr <&> (++ ";")
+    Ass ident expr ->
+      (pPrint ident <&> (++ " = ") <&> (++)) <*> pPrint expr <&> (++ ";")
 
-    Incr id -> pPrint id <&> (++ "++;")
+    Incr ident -> pPrint ident <&> (++ "++;")
 
-    Decr id -> pPrint id <&> (++ "--;")
+    Decr ident -> pPrint ident <&> (++ "--;")
 
     Ret expr -> ("return " ++) <$> pPrint expr <&> (++ ";")
 
@@ -188,8 +188,8 @@ instance Pretty Expr where
     ELitTrue  -> pure "true"
     ELitFalse -> pure "false"
 
-    EApp id exprs -> do
-      pId    <- pPrint id
+    EApp ident exprs -> do
+      pId    <- pPrint ident
       pExprs <- intercalate ", " <$> mapM pPrint exprs
       pure $ mconcat [pId, "(", pExprs, ")"]
 
