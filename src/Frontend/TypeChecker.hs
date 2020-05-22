@@ -265,11 +265,7 @@ annotate topExp = do
           return (EApp id annExps, Fun retType argTypes)
 
       -- Does not support multi-dimensional arrays.
-      EVar var@ArrVar{} -> lookupVar var >>= \case
-        Arr t -> return (topExp, t)
-        t -> error $ "ann: ArrVar was not of type Arr, but rather: " ++ show t
-
-      EVar var@IdVar{} -> do
+      EVar var -> do
         typ <- lookupVar var
         return (topExp, typ)
 
@@ -399,7 +395,12 @@ getRet = ST.get >>= \ env -> case getRet' env of
 -- If so, return the type of its topmost ("latest") occurrence, or throw an
 -- error otherwise.
 lookupVar :: Var -> TypeCheck Type
-lookupVar (ArrVar id _) = lookupVar (IdVar id)
+lookupVar (ArrVar ident idxs) =
+  typeAtDepth (length idxs) <$> lookupVar (IdVar ident)
+  where
+    typeAtDepth :: Int -> Type -> Type
+    typeAtDepth 0 t       = t
+    typeAtDepth n (Arr t) = typeAtDepth (n - 1) t
 lookupVar (IdVar id)    = ST.get >>= \ cxts -> case lookupVar' id cxts of
   Just typ -> return typ
   Nothing  -> throw $ SymbolError id
