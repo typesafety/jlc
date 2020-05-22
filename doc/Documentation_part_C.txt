@@ -33,9 +33,8 @@ New grammar for the arrays1 extension:
     Some rules that previously used `Ident` now uses `Var` where applicable.
 
 * New value category `ArrIndex`. Allows the grammar to support indexing at
-    arbirary nested levels of an array variable (arr[][][]...), even though
-    the rest of the compilation phases do _not_ support multi-dimensional
-    arrays.
+    arbirary nested levels of an array variable (arr[][][]...).
+    (Not relevant however, as multi-dimensional arrays are not supported).
 
 * New Expr label ELength.
 
