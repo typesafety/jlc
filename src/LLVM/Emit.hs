@@ -32,19 +32,19 @@ instance EmitLLVM LLVM where
       ]
 
 instance EmitLLVM TypeDef where
-  emit (TypeDef id typ) = emit id ++ " = type " ++ emit typ
+  emit (TypeDef ident typ) = emit ident ++ " = type " ++ emit typ
 
 instance EmitLLVM VarDef where
-  emit (VarDef id typ source) = mconcat
-    [ emit id, " = internal constant ", emit typ, " ", emit source ]
+  emit (VarDef ident typ source) = mconcat
+    [ emit ident, " = internal constant ", emit typ, " ", emit source ]
 
 instance EmitLLVM FunDecl where
-  emit (FunDecl typ id pTypes) = mconcat
-    [ "declare ", emit typ, " ", emit id, "(", commaSep pTypes, ")" ]
+  emit (FunDecl typ ident pTypes) = mconcat
+    [ "declare ", emit typ, " ", emit ident, "(", commaSep pTypes, ")" ]
 
 instance EmitLLVM FunDef where
-  emit (FunDef typ id params bblocks) = mconcat
-    [ "define ", emit typ, " ", emit id, "(", commaSep params, ") {\n"
+  emit (FunDef typ ident params bblocks) = mconcat
+    [ "define ", emit typ, " ", emit ident, "(", commaSep params, ") {\n"
     , newlineSep bblocks
     , "}"
     ]
@@ -59,11 +59,11 @@ instance EmitLLVM Label where
   emit (Label str) = str
 
 instance EmitLLVM Param where
-  emit (Param typ id) = emit typ ++ " " ++ emit id
+  emit (Param typ ident) = emit typ ++ " " ++ emit ident
 
 instance EmitLLVM Source where
-  emit (SIdent id)  = emit id
-  emit (SVal _ lit) = emit lit
+  emit (SIdent ident) = emit ident
+  emit (SVal _ lit)   = emit lit
 
 instance EmitLLVM Lit where
   emit = \case
@@ -90,17 +90,11 @@ instance EmitLLVM Type where
     TVoid        -> "void"
     TDouble      -> "double"
     TStruct ts   -> "{" ++ intercalate ", " (map emit ts) ++ "}"
-    -- Unused.
-    -- TODO: Remove once confirmed that they are not (currently) used.
-    -- TName Ident
-    -- TLabel Label
-    -- TFun Type [Type]
-    -- TFloat
-    -- TNull
+    t -> error $ "EmitLLVM Type: unhandled case for type `" ++ show t ++ "`"
 
 instance EmitLLVM Instruction where
-  emit (IAss id ig) = emit id ++ " = " ++ emit ig
-  emit (INoAss ig)  = emit ig
+  emit (IAss ident ig) = emit ident ++ " = " ++ emit ig
+  emit (INoAss ig)     = emit ig
 
 instance EmitLLVM InstrGroup where
   emit = \case
@@ -126,18 +120,18 @@ instance EmitLLVM TermOp where
 instance EmitLLVM MemOp where
   emit = \case
     Alloca typ -> "alloca " ++ emit typ
-    Load valType ptrType id -> mconcat
-      [ "load ", emit valType, ", ", emit ptrType, " ", emit id ]
-    Store valType source ptrType id -> mconcat
+    Load valType ptrType ident -> mconcat
+      [ "load ", emit valType, ", ", emit ptrType, " ", emit ident ]
+    Store valType source ptrType ident -> mconcat
       [ "store "
       , emit valType, " ", emit source, ", "
-      , emit ptrType, " ", emit id
+      , emit ptrType, " ", emit ident
       ]
     GetElementPtr typ args -> mconcat
       [ "getelementptr ", emit typ, ", ", intercalate ", " $ map emit2 args ]
       where
         emit2 :: (Type, Source) -> String
-        emit2 (typ, src) = emit typ ++ " " ++ emit src
+        emit2 (t, s) = emit t ++ " " ++ emit s
 
 instance EmitLLVM OtherOp where
   emit = \case
@@ -145,8 +139,8 @@ instance EmitLLVM OtherOp where
       [ "icmp ", emit iCond, " ", emit typ, " ", emit s1, ", ", emit s2 ]
     Fcmp fCond typ s1 s2 -> mconcat
       [ "fcmp ", emit fCond, " ", emit typ, " ", emit s1, ", ", emit s2 ]
-    Call retType id args -> mconcat
-      [ "call ", emit retType, " ", emit id, "(", commaSep args, ")" ]
+    Call retType ident args -> mconcat
+      [ "call ", emit retType, " ", emit ident, "(", commaSep args, ")" ]
     Sitofp fromT src toT -> unwords
       [ "sitofp", emit fromT, emit src, "to", emit toT ]
     Ptrtoint fromT src toT -> unwords
@@ -189,10 +183,10 @@ divideOn :: Eq a => a -> [a] -> ([a], [a])
 divideOn mark xs = divide' mark ([], xs)
   where
     divide' :: Eq a => a -> ([a], [a]) -> ([a], [a])
-    divide' _ t@(l, []) = t
-    divide' mark (l, r : rs)
-      | r == mark = (l, rs)
-      | otherwise = divide' mark (l ++ [r], rs)
+    divide' _ t@(_, []) = t
+    divide' m (l, r : rs)
+      | r == m = (l, rs)
+      | otherwise = divide' m (l ++ [r], rs)
 
 indent :: String
 indent = "  "
