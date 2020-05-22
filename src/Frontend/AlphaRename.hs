@@ -96,8 +96,8 @@ renameStmt = \case
     aVar <- renameVar var
     return $ Ass aVar aExpr
 
-  Incr{} -> error "renameStmt: Unexpected Incr{}; should be desugared away."
-  Decr{} -> error "renameStmt: Unexpected Decr{}; should be desugared away."
+  Incr var -> incrDecr Incr var
+  Decr var -> incrDecr Decr var
 
   Ret expr -> Ret <$> renameExpr expr
 
@@ -128,6 +128,14 @@ renameStmt = \case
 
   -- Catch-all case for statements that need no renaming.
   stmt -> return stmt
+
+  where
+    incrDecr :: (Var -> Stmt) -> Var -> Rename Stmt
+    incrDecr c (IdVar ident)       = c . IdVar <$> lookupVar (Original ident)
+    incrDecr c (ArrVar ident idxs) = do
+      aIdxs <- mapM renameArrIdx idxs
+      aIdent <- lookupVar (Original ident)
+      return $ c (ArrVar aIdent aIdxs)
 
 renameArrIdx :: ArrIndex -> Rename ArrIndex
 renameArrIdx (ArrIndex e) = ArrIndex <$> renameExpr e
