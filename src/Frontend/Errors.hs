@@ -5,8 +5,8 @@ module Frontend.Errors
        , compilerErrMsg
        ) where
 
-import Javalette.Abs
 import Frontend.PrettyPrinter (Pretty, prettyPrint)
+import Javalette.Abs
 
 import qualified GHC.Stack as Stack
 
@@ -82,15 +82,15 @@ data Error
 
 instance Show Error where
   show = \case
-    ReturnError id expectedType actualType -> mconcat
-      [ "Function `", pp id, "` has return type:\n"
+    ReturnError ident expectedType actualType -> mconcat
+      [ "Function `", pp ident, "` has return type:\n"
       , "    ", pp expectedType, "\n"
       , "but incorrectly returns:\n"
       , "    ", pp actualType
       ]
 
-    MissingReturnError id -> mconcat
-      [ "Function `", pp id, "`: missing reachable return statement"
+    MissingReturnError ident -> mconcat
+      [ "Function `", pp ident, "`: missing reachable return statement"
       ]
 
     IncrTypeError var typ -> mconcat
@@ -103,45 +103,45 @@ instance Show Error where
       , "int, but instead got type: ", pp typ
       ]
 
-    SymbolError id -> mconcat
-      [ "Could not resolve symbol: `", pp id, "`"
+    SymbolError ident -> mconcat
+      [ "Could not resolve symbol: `", pp ident, "`"
       ]
 
-    NumArgsError id expectedNum actualNum -> mconcat
-      [ "Function `", pp id, "` expected "
+    NumArgsError ident expectedNum actualNum -> mconcat
+      [ "Function `", pp ident, "` expected "
       , show expectedNum, " arguments, but got ", show actualNum
       ]
 
-    ExpError exp expectedTypes inferredType -> mconcat
+    ExpError expr expectedTypes inferredType -> mconcat
       [ "Expected expression\n"
-      , "    ", pp exp, "\n"
+      , "    ", pp expr, "\n"
       , "to have one of the following types:\n"
       , "    ", init . tail . pp $ expectedTypes, "\n"
       , "but instead the inferred type was:\n"
       , "    ", pp inferredType
       ]
 
-    DuplicateDeclError id -> mconcat
-      [ "Variable `", pp id, "` is already declared in"
+    DuplicateDeclError ident -> mconcat
+      [ "Variable `", pp ident, "` is already declared in"
       , " the current context"
       ]
 
-    DuplicateFunError id -> mconcat
-      [ "Duplicate top-level function identifier: `", pp id, "`"
+    DuplicateFunError ident -> mconcat
+      [ "Duplicate top-level function identifier: `", pp ident, "`"
       ]
 
-    DuplicateParamError id -> mconcat
-      [ "Duplicate argument identifiers in function: `", pp id, "`"
+    DuplicateParamError ident -> mconcat
+      [ "Duplicate argument identifiers in function: `", pp ident, "`"
       ]
 
-    VoidParamError id -> mconcat
-      [ "Function: `", pp id, "` has parameter(s) of type void"
+    VoidParamError ident -> mconcat
+      [ "Function: `", pp ident, "` has parameter(s) of type void"
       ]
 
-    NonVoidSExpError exp inferredType -> mconcat
+    NonVoidSExpError expr inferredType -> mconcat
       [ "Statements consisting of single expressions must be of type void,"
       , " but the following expression:\n"
-      , "    ", pp exp, "\n"
+      , "    ", pp expr, "\n"
       , "had type:\n"
       , "    ", pp inferredType
       ]
