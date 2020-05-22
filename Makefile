@@ -21,10 +21,13 @@ submissionA:
 submissionB:
 	tar -czf partB-REPLACETHIS.tar.gz doc lib src jlc.cabal Makefile
 
-testB:
-	tar -czf tester/partB-999.tar.gz doc lib src jlc.cabal Makefile
-	cd tester && python3 testing.py partB-999.tar.gz \
-		--archive --llvm
+submissionC:
+	tar -czf partC-REPLACETHIS.tar.gz doc lib src jlc.cabal Makefile
+
+testC:
+	tar -czf tester/partC-999.tar.gz doc lib src jlc.cabal Makefile
+	cd tester && python3 testing.py partC-999.tar.gz \
+		--archive --llvm -x arrays1
 
 clean:
 	-rm ./jlc

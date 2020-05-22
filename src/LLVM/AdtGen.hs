@@ -816,7 +816,7 @@ indexing (J.ArrVar jIdent jArrIdxs) = do
   jlArrPtrType <- typeOfId lIdent
   -- let TPointer jlArrPtrType = traceShowId storedAt
   -- let TPointer jlArrType    = traceShowId jlArrPtrType
-  let TPointer jlArrType = traceShowId jlArrPtrType
+  let TPointer jlArrType = jlArrPtrType
   -- t is the type of the contents of the array (and also the
   -- type to be returned).
   let t = arrContentType jlArrType
