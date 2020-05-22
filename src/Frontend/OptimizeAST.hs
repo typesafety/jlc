@@ -1,5 +1,4 @@
-{-# LANGUAGE LambdaCase    #-}
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE LambdaCase #-}
 
 {- | Module for running various optimizations before code generation,
 through static analysis of the desugared AST.
@@ -22,7 +21,9 @@ import qualified GHC.Stack as Stack
 
 
 newtype Optimize a = Optimize a
-  deriving (Functor)
+
+instance Functor Optimize where
+  fmap f (Optimize a) = Optimize $ f a
 
 instance Applicative Optimize where
   pure = Optimize
@@ -47,7 +48,7 @@ optimizeAst p = runOptimize $ optProg p >>= optProg
     optProg (Program topDefs) = Program <$> traverse optTopDef topDefs
 
 optTopDef :: TopDef -> Optimize TopDef
-optTopDef (FnDef typ id args blk) = FnDef typ id args <$> optBlk blk
+optTopDef (FnDef typ ident args blk) = FnDef typ ident args <$> optBlk blk
 
 -- TODO: We might be able to perform some optimization here;
 -- if we find a Ret or VRet in a block statement, we should be able
@@ -57,7 +58,7 @@ optBlk :: Blk -> Optimize Blk
 optBlk (Block stmts) = Block <$> traverse optStmt stmts
 
 optItem :: Item -> Optimize Item
-optItem (Init id expr) = Init id <$> optExpr expr
+optItem (Init ident expr) = Init ident <$> optExpr expr
 optItem item           = pure item
 
 optStmt :: Stack.HasCallStack => Stmt -> Optimize Stmt
@@ -66,7 +67,7 @@ optStmt = \case
 
   Decl typ items -> Decl typ <$> traverse optItem items
 
-  Ass id expr -> Ass id <$> optExpr expr
+  Ass ident expr -> Ass ident <$> optExpr expr
 
   Ret expr -> Ret <$> optExpr expr
 
@@ -96,7 +97,7 @@ optStmt = \case
 
 optExpr :: Expr -> Optimize Expr
 optExpr = \case
-  EApp id exprs -> EApp id <$> traverse optExpr exprs
+  EApp ident exprs -> EApp ident <$> traverse optExpr exprs
 
   Not ELitTrue   -> pure ELitFalse
   Not ELitFalse  -> pure ELitTrue
