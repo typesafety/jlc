@@ -810,26 +810,25 @@ indexing (J.ArrVar jIdent jArrIdxs) = do
 
 -------- TODOOOOO: Why is storedAt not of type {i32, []*}**? should it be?
 
+  let lIdent = transId Local jIdent
 
   -- jlArrType is our representation of a JL type; a structure.
-  storedAt <- typeOfId $ transId Local jIdent
-  let TPointer jlArrPtrType = traceShowId storedAt
+  jlArrPtrType <- typeOfId lIdent
+  -- let TPointer jlArrPtrType = traceShowId storedAt
   -- let TPointer jlArrType    = traceShowId jlArrPtrType
-  let jlArrType = jlArrPtrType
+  let TPointer jlArrType = traceShowId jlArrPtrType
   -- t is the type of the contents of the array (and also the
   -- type to be returned).
   let t = arrContentType jlArrType
 
-  -- Load the pointer to the struct.
+  -- lIdent :: {i32, [0 x t]*}*
   let lIdent = transId Local jIdent
-  ptr_to_struct <- nextVar
-  tellI $ (ptr_to_struct `L.load` jlArrPtrType) storedAt lIdent
 
   -- Get a pointer that points to the pointer to the LLVM array in the struct.
-  -- That is, arrPtrPtr has type [0 x t]**
-  arrPtrPtr <- nextVar
-  tellI $ (arrPtrPtr `L.getelementptr` jlArrType)
-            [(jlArrPtrType, SIdent ptr_to_struct), L.idx 0, L.idx 1]
+  -- That is, sndPtr has type [0 x t]**
+  sndPtr <- nextVar
+  tellI $ (sndPtr `L.getelementptr` jlArrType)
+            [(jlArrPtrType, SIdent lIdent), L.idx 0, L.idx 1]
 
   -- arrPtr :: [0 x t]*
   arrPtr <- nextVar
@@ -837,12 +836,14 @@ indexing (J.ArrVar jIdent jArrIdxs) = do
             arrPtr
             (L.toPtr (L.arrType t))
             (L.toPtr (L.toPtr (L.arrType t)))
-            arrPtrPtr
+            sndPtr
 
   -- Now we can use getelementptr to the the pointer to the correct index.
   idxPtr <- nextVar
   tellI $ (idxPtr `L.getelementptr` L.arrType t)
-            ((L.toPtr (L.arrType t), SIdent arrPtr) : idxsAsArgs)
+            ((L.toPtr (L.arrType t), SIdent arrPtr)
+              : (L.i32, L.srcI32 0)
+              : idxsAsArgs)
 
   return (idxPtr, t)
 
