@@ -315,7 +315,7 @@ convStmt s = case s of
   -- there to be only a single Item per declaration statement,
   -- and no combined declarations and initializations.
   J.Decl jType [J.NoInit jId] -> do
-    let lId = transId Local jId
+    let lId   = transId Local jId
     let lType = transType jType
 
     bindType lId (L.toPtr lType)
@@ -325,43 +325,32 @@ convStmt s = case s of
   -- Currently does not support multi-dimensional arrays.
   J.Ass jArrVar@J.ArrVar{} jExpr -> do
     (idxPtr, contentType) <- indexing jArrVar
-    srcId <- convExpr jExpr
-    tellI $ L.store contentType srcId (L.toPtr contentType) idxPtr
+    content <- convExpr jExpr
+    tellI $ L.store contentType content (L.toPtr contentType) idxPtr
 
   J.Ass (J.IdVar jId) jExpr -> do
-    let storeId = transId Local jId
-    srcId <- convExpr jExpr
-    typeOf srcId >>= \case
-      -- In the case that the expression was a "new array" expression, the
-      -- srcId is a pointer to the struct, which we dereference and then
-      -- store at the variable storeId. In other words, we want the storeId
-      -- to point at the same thing as srcId, but have to do so via load and
+    let storeAt = transId Local jId
+    content  <- convExpr jExpr
+    typeOf content >>= \case
+      -- In the case that the expression was a "new array" expression,
+      -- content is a pointer to the struct, which we dereference and then
+      -- store at the variable storeAt. In other words, we want the storeAt
+      -- to point at the same thing as content, but have to do so via load and
       -- store, since LLVM doesn't have "normal" assignment (%x = %y).
       -- This should be the same procedure for any other assignment where
       -- the value to be assigned is a pointer (arrays is just one case).
       TPointer t -> do
-        -- TODO: change type of L.load to use Source instead of Ident
-        let SIdent ident = srcId
+        let SIdent contentId = content
         tmp <- nextVar
-        tellI $ (tmp `L.load` t) (L.toPtr t) ident
-        tellI $ L.store t (SIdent tmp) (L.toPtr t) storeId
-      srcIdType -> do
-        ptrType@(TPointer valType) <- typeOfId storeId
-        -- assertion?
-        if srcIdType == valType
-          then tellI $ L.store valType srcId ptrType storeId
-          else error "aaaaaaaaaaaaaaaaaaa"
-
-  -- J.Ass (J.IdVar jId) jExpr -> do
-  --   let storeId = transId Local jId
-  --   srcId <- convExpr jExpr
-  --   ptrType@(TPointer valType) <- typeOfId storeId
-  --   tellI $ L.store valType srcId ptrType storeId
+        tellI $ (tmp `L.load` t) (L.toPtr t) contentId
+        tellI $ L.store t (SIdent tmp) (L.toPtr t) storeAt
+      contentType ->
+        tellI $ L.store contentType content (L.toPtr contentType) storeAt
 
   J.Ret jExpr -> do
-    srcId <- convExpr jExpr
+    res <- convExpr jExpr
     retType <- fromJust <$> view envRetType
-    tellI $ L.ret retType srcId
+    tellI $ L.ret retType res
 
   J.VRet -> tellI L.vret
 
@@ -425,12 +414,11 @@ of the earlier applies.
 -}
 convExpr :: Stack.HasCallStack => J.Expr -> Convert Source
 convExpr = \case
-  -- We represent JL arrays as a LLVM 2-field struct as such:
+  -- We represent JL arrays as a LLVM 2-field struct as:
   -- {i32, [n x i32]*}
-  -- This allows us to keep the array length as well (important!)
   J.ENewArr jType jExpr -> do
     -- Get the type of the contents of the array.
-    let t = transType jType
+    let t         = transType jType
     let arrType   = L.arrType t
     let jlArrType = L.jlArrType t
 
@@ -440,9 +428,10 @@ convExpr = \case
     -- Get the size of the i32 type (size_t).
     size_t_src <- sizeOf t
 
-    -- Allocate memory for the structure.
+    -- Allocate memory for the structure, pointed to by a variable
+    -- of type {i32, [0 x t]*}*
     struct_ptr <- nextVar
-    tellI $ L.alloca struct_ptr jlArrType
+    tellI $ struct_ptr `L.alloca` jlArrType
 
     -- Store the length of the array in the structure.
     struct_len_ptr <- nextVar
@@ -468,6 +457,7 @@ convExpr = \case
             (L.toPtr arrType) (SIdent arr_ptr)
             (L.toPtr (L.toPtr arrType)) struct_arr_ptr
 
+    -- Return the pointer to the structure.
     bindRetId struct_ptr (L.toPtr jlArrType)
 
   -- Currently only supports one-dimensional arrays; we make the assumption
@@ -493,19 +483,19 @@ convExpr = \case
   J.EVar jArrVar@J.ArrVar{} -> do
     (idxPtr, contentType) <- indexing jArrVar
 
-    assId <- nextVar
-    tellI $ (assId `L.load` contentType) (L.toPtr contentType) idxPtr
+    res <- nextVar
+    tellI $ (res `L.load` contentType) (L.toPtr contentType) idxPtr
 
-    bindRetId assId contentType
+    bindRetId res contentType
 
   J.EVar (J.IdVar jIdent) -> do
     let lId = transId Local jIdent
     ptrType@(TPointer valType) <- typeOf $ SIdent lId
 
-    assId <- nextVar
-    tellI $ (assId `L.load` valType) ptrType lId
+    res <- nextVar
+    tellI $ (res `L.load` valType) ptrType lId
 
-    bindRetId assId valType
+    bindRetId res valType
 
   -- Hardcoded case for printString.
   J.EApp jId@(J.Ident "printString") [jExpr] -> do
@@ -525,43 +515,43 @@ convExpr = \case
 
   J.EApp jId jExprs -> do
     let funId = transId Global jId
-    (retType, paramTypes) <- lookupFun funId
+    (resType, paramTypes) <- lookupFun funId
     paramSrcs <- mapM convExpr jExprs
     let args = zipWith Arg paramTypes paramSrcs
 
-    case retType of
+    case resType of
       TVoid -> do
         tellI $ L.callV funId args
         return L.srcNull 
       _ -> do
-        assId <- nextVar
-        tellI $ (assId `L.call`) retType funId args
-        bindRetId assId retType
+        res <- nextVar
+        tellI $ (res `L.call`) resType funId args
+        bindRetId res resType
 
   J.EString str -> do
     gId <- addGlobalStr str
     bindRetId gId (L.strType str)
 
   J.Neg jExpr -> do
-    assId <- nextVar
-    srcId <- convExpr jExpr
-    retType <- typeOf srcId
-    case retType of
-      TNBitInt 32 -> tellI $ (assId `L.mul`   L.i32)  srcId (L.srcI32 (-1))
-      TDouble     -> tellI $ (assId `L.fmul` TDouble) srcId (L.srcD   (-1))
+    res <- nextVar
+    content <- convExpr jExpr
+    resType <- typeOf content
+    case resType of
+      TNBitInt 32 -> tellI $ (res `L.mul`   L.i32)  content (L.srcI32 (-1))
+      TDouble     -> tellI $ (res `L.fmul` TDouble) content (L.srcD   (-1))
       _ -> error $ "convExpr: case J.Neg: unexpected type of expression: "
-                 ++ show retType
-    bindRetId assId retType
+                 ++ show resType
+    bindRetId res resType
 
   J.Not jExpr -> do
-    assId <- nextVar
-    srcId <- convExpr jExpr
-    tellI $ (assId `L.xor` L.bool) srcId L.srcTrue
-    bindRetId assId L.bool
+    res <- nextVar
+    content <- convExpr jExpr
+    tellI $ (res `L.xor` L.bool) content L.srcTrue
+    bindRetId res L.bool
 
   J.EAdd jE1 jOp jE2 -> convArithOp jE1 jE2 (Left jOp) getOp
     where
-      getOp (Left jO) retType = case (jO, retType) of
+      getOp (Left jO) resType = case (jO, resType) of
           (J.Plus,  TNBitInt _) -> Add
           (J.Plus,  TDouble)    -> Fadd
           (J.Minus, TNBitInt _) -> Sub
@@ -569,7 +559,7 @@ convExpr = \case
 
   J.EMul jE1 jOp jE2 -> convArithOp jE1 jE2 (Right jOp) getOp
     where
-      getOp (Right jO) retType = case (jO, retType) of
+      getOp (Right jO) resType = case (jO, resType) of
         (J.Times, TNBitInt _) -> Mul
         (J.Times, TDouble)    -> Fmul
         (J.Div,   TNBitInt _) -> Sdiv
@@ -580,9 +570,9 @@ convExpr = \case
     res1 <- convExpr jE1
     res2 <- convExpr jE2
     opType <- typeOf res1
-    assId <- nextVar
-    tellI $ getIns jOp opType assId res1 res2
-    bindRetId assId L.bool
+    res <- nextVar
+    tellI $ getIns jOp opType res res1 res2
+    bindRetId res L.bool
     where
       getIns :: J.RelOp -> Type -> Ident -> (Source -> Source -> Instruction)
       getIns jO typ ident = case (jO, typ) of
@@ -653,12 +643,12 @@ convExpr = \case
       -> (Either J.AddOp J.MulOp -> Type -> ArithOp)
       -> Convert Source
     convArithOp jE1 jE2 jOp getOp = do
-      srcId1 <- convExpr jE1
-      srcId2 <- convExpr jE2
-      retType <- typeOf srcId1  -- Assumes that retType == either input type
-      assId <- nextVar
-      tellI $ L.arith (getOp jOp retType) assId retType srcId1 srcId2
-      bindRetId assId retType
+      res1 <- convExpr jE1
+      res2 <- convExpr jE2
+      resType <- typeOf res1  -- Assumes that retType == either input type
+      res <- nextVar
+      tellI $ L.arith (getOp jOp resType) res resType res1 res2
+      bindRetId res resType
 
 --
 -- * Conversion related helper functions
@@ -794,34 +784,30 @@ indexing (J.ArrVar jIdent jArrIdxs) = do
   idxsAsArgs <- zip (repeat L.i32)
                 <$> mapM (\ (J.ArrIndex e) -> convExpr e) jArrIdxs
 
--------- TODOOOOO: Why is storedAt not of type {i32, []*}**? should it be?
-
+  -- jlArrPtrType :: {i32, [0 x t]*}*
+  -- jlArrPtrType points to the array representation in memory, which
+  -- we get by performing a lookup on the translated JL variable name.
   let lIdent = transId Local jIdent
+  jlArrPtrType@(TPointer jlArrType) <- typeOfId lIdent
 
-  -- jlArrType is our representation of a JL type; a structure.
-  jlArrPtrType <- typeOfId lIdent
-  -- let TPointer jlArrPtrType = traceShowId storedAt
-  -- let TPointer jlArrType    = traceShowId jlArrPtrType
-  let TPointer jlArrType = jlArrPtrType
   -- t is the type of the contents of the array (and also the
   -- type to be returned).
   let t = arrContentType jlArrType
 
-  -- Get a pointer that points to the pointer to the LLVM array in the struct.
-  -- That is, sndPtr has type [0 x t]**
+  -- Get a pointer that points to the "second half" in the struct.
+  -- That is, sndPtr has type [0 x t]**, and arrPtr has type [0 x t]*.
   sndPtr <- nextVar
   tellI $ (sndPtr `L.getelementptr` jlArrType)
             [(jlArrPtrType, SIdent lIdent), L.idx 0, L.idx 1]
-
-  -- arrPtr :: [0 x t]*
   arrPtr <- nextVar
   tellI $ L.load
             arrPtr
             (L.toPtr (L.arrType t))
             (L.toPtr (L.toPtr (L.arrType t)))
             sndPtr
+  -- arrPtr :: [0 x t]*
 
-  -- Now we can use getelementptr to the the pointer to the correct index.
+  -- Now we can use getelementptr to get the pointer to the correct index.
   idxPtr <- nextVar
   tellI $ (idxPtr `L.getelementptr` L.arrType t)
             ((L.toPtr (L.arrType t), SIdent arrPtr)
