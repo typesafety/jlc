@@ -20,8 +20,6 @@ module LLVM.AdtGen
        ( convert
        ) where
 
-import Debug.Trace
-
 import Control.Monad (replicateM, void)
 import Data.Bifunctor (first)
 import Lens.Micro.Platform
@@ -39,14 +37,6 @@ import qualified LLVM.Shorthands as L
 import qualified Javalette.Abs as J
 
 
-newtype OriginalId = OriginalId Ident
-  deriving (Eq, Ord, Show)
-
-newtype NewId = NewId Ident
-  deriving (Eq, Ord, Show)
-
-type Context = M.Map OriginalId NewId
-
 newtype GlobalVar = GlobalVar Ident
   deriving (Eq, Ord, Show)
 
@@ -58,17 +48,15 @@ type StringTable = M.Map GlobalVar StringLit
 type TypeTable = M.Map Ident Type
 
 {-| The carried state:
-@stVarCount@ - Counter for local variable names (suffix).
-@stGlobal@ - Counter for global variable names (suffix).
-@stLabel@ - Counter for label names (suffix).
-@stCxt@ - Keeps track of variable names if they've been renamed.
+@stVarCount@   - Counter for local variable names (suffix).
+@stGlobal@     - Counter for global variable names (suffix).
+@stLabel@      - Counter for label names (suffix).
+@stCxt@        - Keeps track of variable names if they've been renamed.
 @stGlobalVars@ - Table mapping global variables to string literals.
   Works since Javalette only uses strings as literals, would possibly
   need rework if the language specification changes. The only only
   operations on this map should be _unique_ insertions, and reads.
-@stTypeTable@ - Keeps track of types of variables.
-@stNewArrType@ - A bit of a hack; when we evaluate the ENewArr expression,
-  we store the type in this list, and when we use it, we remove it.
+@stTypeTable@  - Keeps track of types of variables.
 -}
 data St = St
   { _stGlobalCount :: Int
@@ -76,23 +64,22 @@ data St = St
   , _stLabelCount  :: Int
   , _stGlobalVars  :: StringTable
   , _stTypeTable   :: TypeTable
-  , _stNewArrType  :: [Type]
   }
 
 $(makeLenses ''St)
 
 initSt :: St
-initSt = St 0 0 0 M.empty M.empty []
+initSt = St 0 0 0 M.empty M.empty
 
 type Signatures = M.Map Ident FunDecl
 
 {- | The environment:
-@envSigs@ - Table of mappings from function Idents to their return types and
-  argument types. For now, all Idents should be of global scope.
+@envSigs@    - Table of mappings from function Idents to their return types
+  and argument types. For now, all Idents should be of global scope.
 @envRetType@ - When inside a function, this is its return type.
 -}
 data Env = Env
-  { _envSigs :: Signatures
+  { _envSigs    :: Signatures
   , _envRetType :: Maybe Type
   }
 
@@ -105,7 +92,7 @@ initEnv = Env initSigs Nothing
     initSigs = M.fromList $ zip (map getId stdExtFunDefs) stdExtFunDefs
       where
         getId :: FunDecl -> Ident
-        getId (FunDecl _ id _) = id
+        getId (FunDecl _ ident _) = ident
 
 {- | Javalette is first translated to this intermediate type, which will
 then be assembled into actual basic blocks. This intermediate type
@@ -189,15 +176,14 @@ convProg (J.Program topDefs) =
       , llvmFunDefs  = funDefs
       , llvmFunDecls = funDecls
       }
-
   where
     -- Only supports string literals.
     toVarDef :: (GlobalVar, StringLit) -> VarDef
-    toVarDef (GlobalVar id, StringLit str) =
+    toVarDef (GlobalVar ident, StringLit str) =
         -- String variables have type [n x i8]*, here we write [n x i8]
         -- though, since it's the type of the actual string constant.
       let TPointer strConstType = L.strType str
-      in VarDef id strConstType (SVal (L.strType str) (LString str))
+      in VarDef ident strConstType (SVal (L.strType str) (LString str))
 
     progDecls :: Signatures
     progDecls = M.fromList $ zip (map getId decls) decls
@@ -206,11 +192,11 @@ convProg (J.Program topDefs) =
         decls = map getFunDecl topDefs
 
         getId :: FunDecl -> Ident
-        getId (FunDecl _ id _) = id
+        getId (FunDecl _ ident _) = ident
 
 -- | Get the LLVM function definition from a JL TopDef construct.
 getFunDecl :: J.TopDef -> FunDecl
-getFunDecl (J.FnDef jType jId jArgs jBlk) =
+getFunDecl (J.FnDef jType jId jArgs _jBlk) =
   let retType = transType jType
       funId   = transId Global jId
       pTypes  = map (\ (J.Argument t _) -> transType t) jArgs
@@ -248,42 +234,49 @@ convTopDef (J.FnDef jType jId jArgs jBlk) = do
 
   -- Set the function's return type in the environment.
   basicBlks <- R.local (set envRetType (Just retType)) $ convBlk jBlk
-  let bbinj f (BasicBlock l is : bbs) = BasicBlock l (f is) : bbs
+  let bbinj :: Stack.HasCallStack
+            => ([Instruction] -> [Instruction])
+            -> [BasicBlock]
+            -> [BasicBlock]
+      bbinj f (BasicBlock l is : bbs) = BasicBlock l (f is) : bbs
+      bbinj _ _ = error "bbinj: no match"
 
   return $ FunDef retType funId params (bbinj (extraInstrs ++) basicBlks)
 
   where
     fixParams :: [J.Arg] -> Convert ([Param], [Instruction])
-    fixParams jArgs = do
+    fixParams js = do
       -- Create the parameters and extra instructions.
-      pis <- paramsInstrs 0 jArgs
+      pis <- paramsInstrs 0 js
       -- We must not forget to add the types of our new variables
       -- to the state.
-      assign stTypeTable (M.fromList $ map (jArgToIdType Local) jArgs)
+      assign stTypeTable (M.fromList $ map (jArgToIdType Local) js)
       return pis
 
     paramsInstrs :: Int -> [J.Arg] -> Convert ([Param], [Instruction])
-    paramsInstrs count [] = return ([], [])
-    paramsInstrs count (J.Argument jType jId : xs) = do
+    paramsInstrs _ [] = return ([], [])
+    paramsInstrs count (J.Argument jT jI : xs) = do
       -- Create the parameter with a new name.
-      let lType        = transType jType
+      let lType        = transType jT
       let newId        = Ident Local ('p' : show count)
       let renamedParam = Param lType newId
+
       -- Create instructions for storing the parameter value in memory.
-      let origId     = transId Local jId
+      let origId     = transId Local jI
       let allocInstr = IAss origId (IMem $ Alloca lType)
       let storeInstr =
             INoAss $ IMem $ Store lType (SIdent newId) (TPointer lType) origId
+
       (ps, is) <- paramsInstrs (count + 1) xs
       return (renamedParam : ps, [allocInstr, storeInstr] ++ is)
 
     jArgToIdType :: Scope -> J.Arg -> (Ident, Type)
-    jArgToIdType scope (J.Argument jType jId) =
-      (transId scope jId, TPointer $ transType jType)
+    jArgToIdType scope (J.Argument jT jI) =
+      (transId scope jI, TPointer $ transType jT)
 
 convBlk :: J.Blk -> Convert [BasicBlock]
 convBlk (J.Block stmts) = do
-  (a, w) <- W.listen $ tellL (Label "entry") >> mapM_ convStmt stmts
+  (_, w) <- W.listen $ tellL (Label "entry") >> mapM_ convStmt stmts
   return $ (map tieUp . buildBlocks) w
   where
     -- Add an "unreachable" instruction to the end of a basic block if
@@ -297,13 +290,13 @@ convBlk (J.Block stmts) = do
     -- into blocks at each label.
     buildBlocks :: Stack.HasCallStack => [Translated] -> [BasicBlock]
     buildBlocks [] = []
-    buildBlocks (TrI _ : xs) =
+    buildBlocks (TrI _ : _) =
       error "buildBlocks: encountered non-enclosed instruction"
     buildBlocks (TrL l : xs) = BasicBlock l instructions : rest
       where
         (instructions, rest) = case first (map fromTrI) . span isTrI $ xs of
           ([], remaining) -> ([L.unreachable], buildBlocks remaining)
-          (xs, remaining) -> (xs,              buildBlocks remaining)
+          (ys, remaining) -> (ys,              buildBlocks remaining)
 
 {- | Convert a JL statment into a list of LLVM instructions and labels.
 The ordering of the list conserves the semantics of the input program.
@@ -431,7 +424,7 @@ stored, or the literal value. Result is a null literal if neither
 of the earlier applies.
 -}
 convExpr :: Stack.HasCallStack => J.Expr -> Convert Source
-convExpr e = case e of
+convExpr = \case
   -- We represent JL arrays as a LLVM 2-field struct as such:
   -- {i32, [n x i32]*}
   -- This allows us to keep the array length as well (important!)
@@ -497,7 +490,7 @@ convExpr e = case e of
 
   -- Currently does not support multi-dimensional arrays.
   -- (Can't get the array content type from nested arrays)
-  J.EVar jArrVar@(J.ArrVar jId jArrIdxs) -> do
+  J.EVar jArrVar@J.ArrVar{} -> do
     (idxPtr, contentType) <- indexing jArrVar
 
     assId <- nextVar
@@ -556,6 +549,8 @@ convExpr e = case e of
     case retType of
       TNBitInt 32 -> tellI $ (assId `L.mul`   L.i32)  srcId (L.srcI32 (-1))
       TDouble     -> tellI $ (assId `L.fmul` TDouble) srcId (L.srcD   (-1))
+      _ -> error $ "convExpr: case J.Neg: unexpected type of expression: "
+                 ++ show retType
     bindRetId assId retType
 
   J.Not jExpr -> do
@@ -566,7 +561,7 @@ convExpr e = case e of
 
   J.EAdd jE1 jOp jE2 -> convArithOp jE1 jE2 (Left jOp) getOp
     where
-      getOp (Left jOp) retType = case (jOp, retType) of
+      getOp (Left jO) retType = case (jO, retType) of
           (J.Plus,  TNBitInt _) -> Add
           (J.Plus,  TDouble)    -> Fadd
           (J.Minus, TNBitInt _) -> Sub
@@ -574,7 +569,7 @@ convExpr e = case e of
 
   J.EMul jE1 jOp jE2 -> convArithOp jE1 jE2 (Right jOp) getOp
     where
-      getOp (Right jOp) retType = case (jOp, retType) of
+      getOp (Right jO) retType = case (jO, retType) of
         (J.Times, TNBitInt _) -> Mul
         (J.Times, TDouble)    -> Fmul
         (J.Div,   TNBitInt _) -> Sdiv
@@ -590,19 +585,19 @@ convExpr e = case e of
     bindRetId assId L.bool
     where
       getIns :: J.RelOp -> Type -> Ident -> (Source -> Source -> Instruction)
-      getIns jOp typ id = case (jOp, typ) of
-        (J.LTH, TNBitInt _) -> L.icmp id IC_SLT typ
-        (J.LTH, TDouble)    -> L.fcmp id FC_OLT typ
-        (J.LE,  TNBitInt _) -> L.icmp id IC_SLE typ
-        (J.LE,  TDouble)    -> L.fcmp id FC_OLE typ
-        (J.GTH, TNBitInt _) -> L.icmp id IC_SGT typ
-        (J.GTH, TDouble)    -> L.fcmp id FC_OGT typ
-        (J.GE,  TNBitInt _) -> L.icmp id IC_SGE typ
-        (J.GE,  TDouble)    -> L.fcmp id FC_OGE typ
-        (J.EQU, TNBitInt _) -> L.icmp id IC_EQ  typ
-        (J.EQU, TDouble)    -> L.fcmp id FC_OEQ typ
-        (J.NE,  TNBitInt _) -> L.icmp id IC_NE  typ
-        (J.NE,  TDouble)    -> L.fcmp id FC_ONE typ
+      getIns jO typ ident = case (jO, typ) of
+        (J.LTH, TNBitInt _) -> L.icmp ident IC_SLT typ
+        (J.LTH, TDouble)    -> L.fcmp ident FC_OLT typ
+        (J.LE,  TNBitInt _) -> L.icmp ident IC_SLE typ
+        (J.LE,  TDouble)    -> L.fcmp ident FC_OLE typ
+        (J.GTH, TNBitInt _) -> L.icmp ident IC_SGT typ
+        (J.GTH, TDouble)    -> L.fcmp ident FC_OGT typ
+        (J.GE,  TNBitInt _) -> L.icmp ident IC_SGE typ
+        (J.GE,  TDouble)    -> L.fcmp ident FC_OGE typ
+        (J.EQU, TNBitInt _) -> L.icmp ident IC_EQ  typ
+        (J.EQU, TDouble)    -> L.fcmp ident FC_OEQ typ
+        (J.NE,  TNBitInt _) -> L.icmp ident IC_NE  typ
+        (J.NE,  TDouble)    -> L.fcmp ident FC_ONE typ
 
   J.EAnd jE1 jE2 -> lazyLogic jE1 jE2 LazyAnd
   J.EOr  jE1 jE2 -> lazyLogic jE1 jE2 LazyOr
@@ -614,7 +609,7 @@ convExpr e = case e of
 
   -- Forgot that we annotated expressions during type checking...
   -- TODO: rewrite code to make use of type annotation.
-  J.AnnExp jExpr jType -> convExpr jExpr
+  J.AnnExp jExpr _jType -> convExpr jExpr
 
   e -> error $ "convExpr: unexpected expression: " ++ show e
 
@@ -671,10 +666,10 @@ convExpr e = case e of
 
 -- | Bind a type to an ident in the state and return the ident as an SIdent.
 bindRetId :: Ident -> Type -> Convert Source
-bindRetId id typ = bindType id typ >> retId id
+bindRetId ident typ = bindType ident typ >> retId ident
 
 retId :: Ident -> Convert Source
-retId id = return $ SIdent id
+retId ident = return $ SIdent ident
 
 --
 -- * Functions for translating from Javalette ADT to LLVM ADT.
@@ -693,6 +688,7 @@ transType = \case
   -- When generating code, we represent JL arrays as a 2-struct of an
   -- i32 value and a pointer to an LLVM array of variable (0) length.
   J.Arr t  -> TStruct [L.i32, L.toPtr (TArray 0 (transType t))]
+  t -> error $ "transType: unexpected type: " ++ show t
 
 --
 -- * State-related helper functions.
@@ -700,13 +696,13 @@ transType = \case
 
 -- Given a function ID, return its return type and parameters.
 lookupFun :: Stack.HasCallStack => Ident -> Convert (Type, [Type])
-lookupFun id = do
-  FunDecl retType _ pTypes <- unsafeLookup id <$> view envSigs
+lookupFun ident = do
+  FunDecl retType _ pTypes <- unsafeLookup ident <$> view envSigs
   return (retType, pTypes)
 
 -- | Set the type for a variable.
 bindType :: Stack.HasCallStack => Ident -> Type -> Convert ()
-bindType id typ = modifying stTypeTable $ insert id typ
+bindType ident typ = modifying stTypeTable $ insert ident typ
   where
     insert  :: Stack.HasCallStack => Ident -> Type -> TypeTable -> TypeTable
     insert i t m = if i `M.notMember` m
@@ -715,7 +711,7 @@ bindType id typ = modifying stTypeTable $ insert id typ
 
 -- | Get the type of a Source (variable or literal value).
 typeOf :: Source -> Convert Type
-typeOf (SIdent id)     = unsafeLookup id <$> use stTypeTable
+typeOf (SIdent ident)  = unsafeLookup ident <$> use stTypeTable
 typeOf (SVal typ _lit) = return typ
 
 typeOfId :: Ident -> Convert Type
@@ -724,27 +720,17 @@ typeOfId ident = unsafeLookup ident <$> use stTypeTable
 -- | Add a string as a global variable and return its Ident.
 addGlobalStr :: String -> Convert Ident
 addGlobalStr str = do
-  id <- nextGlobal
-  modifying stGlobalVars (M.insert (GlobalVar id) (StringLit str))
-  return id
-
--- | Return the stored array type and set it to Nothing.
-consumeNewArrType :: Stack.HasCallStack => Convert Type
-consumeNewArrType = use stNewArrType >>= \case
-  []     -> error "getNewArrType: Nothing"
-  t : ts -> assign stNewArrType ts >> return t
-
-putNewArrType :: Type -> Convert ()
-putNewArrType t = modifying stNewArrType (t :)
-
+  ident <- nextGlobal
+  modifying stGlobalVars (M.insert (GlobalVar ident) (StringLit str))
+  return ident
 
 {- | Return the count in the state pointed to by the given lens,
 then increment the count.
 -}
 next :: Lens' St Int -> (Int -> a) -> Convert a
-next lens f = do
-  res <- f <$> use lens
-  lens += 1
+next l f = do
+  res <- f <$> use l
+  l += 1
   return res
 
 {- | Return the next unique label name as an Ident, then
@@ -820,9 +806,6 @@ indexing (J.ArrVar jIdent jArrIdxs) = do
   -- t is the type of the contents of the array (and also the
   -- type to be returned).
   let t = arrContentType jlArrType
-
-  -- lIdent :: {i32, [0 x t]*}*
-  let lIdent = transId Local jIdent
 
   -- Get a pointer that points to the pointer to the LLVM array in the struct.
   -- That is, sndPtr has type [0 x t]**
