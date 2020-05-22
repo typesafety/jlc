@@ -338,8 +338,32 @@ convStmt s = case s of
   J.Ass (J.IdVar jId) jExpr -> do
     let storeId = transId Local jId
     srcId <- convExpr jExpr
-    ptrType@(TPointer valType) <- typeOfId storeId
-    tellI $ L.store valType srcId ptrType storeId
+    typeOf srcId >>= \case
+      -- In the case that the expression was a "new array" expression, the
+      -- srcId is a pointer to the struct, which we dereference and then
+      -- store at the variable storeId. In other words, we want the storeId
+      -- to point at the same thing as srcId, but have to do so via load and
+      -- store, since LLVM doesn't have "normal" assignment (%x = %y).
+      -- This should be the same procedure for any other assignment where
+      -- the value to be assigned is a pointer (arrays is just one case).
+      TPointer t -> do
+        -- TODO: change type of L.load to use Source instead of Ident
+        let SIdent ident = srcId
+        tmp <- nextVar
+        tellI $ (tmp `L.load` t) (L.toPtr t) ident
+        tellI $ L.store t (SIdent tmp) (L.toPtr t) storeId
+      srcIdType -> do
+        ptrType@(TPointer valType) <- typeOfId storeId
+        -- assertion?
+        if srcIdType == valType
+          then tellI $ L.store valType srcId ptrType storeId
+          else error "aaaaaaaaaaaaaaaaaaa"
+
+  -- J.Ass (J.IdVar jId) jExpr -> do
+  --   let storeId = transId Local jId
+  --   srcId <- convExpr jExpr
+  --   ptrType@(TPointer valType) <- typeOfId storeId
+  --   tellI $ L.store valType srcId ptrType storeId
 
   J.Ret jExpr -> do
     srcId <- convExpr jExpr
@@ -446,7 +470,7 @@ convExpr e = case e of
       -- Store the pointer to the array at the array-part of the structure.
     struct_arr_ptr <- nextVar
     tellI $ (struct_arr_ptr `L.getelementptr` jlArrType)
-              [(L.toPtr jlArrType, SIdent arr_ptr), L.idx 0, L.idx 1]
+              [(L.toPtr jlArrType, SIdent struct_ptr), L.idx 0, L.idx 1]
     tellI $ L.store
             (L.toPtr arrType) (SIdent arr_ptr)
             (L.toPtr (L.toPtr arrType)) struct_arr_ptr
@@ -460,14 +484,10 @@ convExpr e = case e of
     let lIdent = transId Local jIdent
     jlArrPtrType@(TPointer jlArrType) <- typeOfId $ transId Local jIdent
 
-    -- Get pointer to array representation.
-    jlArrPtr <- nextVar
-    tellI $ (jlArrPtr `L.load` jlArrPtrType) (L.toPtr jlArrPtrType) lIdent
-
     -- Get pointer to array length.
     lenPtr <- nextVar
     tellI $ (lenPtr `L.getelementptr` jlArrType)
-              [(jlArrPtrType, SIdent jlArrPtr), L.idx 0, L.idx 0]
+              [(jlArrPtrType, SIdent lIdent), L.idx 0, L.idx 0]
 
     -- Get array length value.
     lenVal <- nextVar
